@@ -18,6 +18,10 @@ package stormpot;
 import static org.junit.Assert.*;
 import static org.hamcrest.Matchers.*;
 
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicBoolean;
+
 import org.junit.Before;
 import org.junit.Test;
 
@@ -60,5 +64,30 @@ public class ConfigTest {
     Expiration<Poolable> actualRule =
         (Expiration<Poolable>) config.getExpiration();
     assertThat(actualRule, is(expectedRule));
+  }
+  
+  @Test(timeout = 300) public void
+  mustHaveFunctioningDefaultExecutor() throws InterruptedException {
+    Executor executor = config.getExecutor();
+    final AtomicBoolean flag = new AtomicBoolean(false);
+    final CountDownLatch latch = new CountDownLatch(1);
+    Runnable runnable = new Runnable() {
+      public void run() {
+        flag.set(true);
+        latch.countDown();
+      }
+    };
+    executor.execute(runnable);
+    latch.await();
+    assertTrue(flag.get());
+  }
+  
+  @Test public void
+  executorMustBeSettable() {
+    Executor executor = new Executor() {
+      public void execute(Runnable command) {}
+    };
+    config.setExecutor(executor);
+    assertThat(config.getExecutor(), sameInstance(executor));
   }
 }

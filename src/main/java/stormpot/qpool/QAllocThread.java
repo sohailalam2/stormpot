@@ -17,6 +17,7 @@ package stormpot.qpool;
 
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.LockSupport;
 
@@ -35,6 +36,7 @@ class QAllocThread<T extends Poolable> extends Thread {
   private final BlockingQueue<QSlot<T>> live;
   private final BlockingQueue<QSlot<T>> dead;
   private final Allocator<T> allocator;
+  private final Executor executor;
   private volatile int targetSize;
   private int size;
   private long deadPollTimeout = 1;
@@ -45,6 +47,7 @@ class QAllocThread<T extends Poolable> extends Thread {
     this.targetSize = config.getSize();
     completionLatch = new CountDownLatch(1);
     this.allocator = config.getAllocator();
+    this.executor = config.getExecutor();
     this.size = 0;
     this.live = live;
     this.dead = dead;
@@ -107,7 +110,25 @@ class QAllocThread<T extends Poolable> extends Thread {
     }
   }
 
-  private void alloc(QSlot<T> slot) {
+  private void alloc(final QSlot<T> slot) {
+    size++;
+//    executor.execute(new Runnable() {
+//      public void run() {
+//        try {
+//          slot.obj = allocator.allocate(slot);
+//          if (slot.obj == null) {
+//            slot.poison = new NullPointerException("allocation returned null");
+//          }
+//        } catch (Exception e) {
+//          slot.poison = e;
+//        }
+//        slot.created = System.currentTimeMillis();
+//        slot.claims = 0;
+//        slot.stamp = 0;
+//        slot.claimed.set(true);
+//        slot.release(slot.obj);
+//      }
+//    });
     try {
       slot.obj = allocator.allocate(slot);
       if (slot.obj == null) {
@@ -116,7 +137,6 @@ class QAllocThread<T extends Poolable> extends Thread {
     } catch (Exception e) {
       slot.poison = e;
     }
-    size++;
     slot.created = System.currentTimeMillis();
     slot.claims = 0;
     slot.stamp = 0;
@@ -124,8 +144,21 @@ class QAllocThread<T extends Poolable> extends Thread {
     slot.release(slot.obj);
   }
 
-  private void dealloc(QSlot<T> slot) {
+  private void dealloc(final QSlot<T> slot) {
     size--;
+//    executor.execute(new Runnable() {
+//      public void run() {
+//        try {
+//          if (slot.poison == null) {
+//            allocator.deallocate(slot.obj);
+//          }
+//        } catch (Exception _) { // NOPMD
+//          // Ignored as per specification
+//        }
+//        slot.poison = null;
+//        slot.obj = null;
+//      }
+//    });
     try {
       if (slot.poison == null) {
         allocator.deallocate(slot.obj);
