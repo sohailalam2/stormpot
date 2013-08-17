@@ -15,6 +15,13 @@
  */
 package stormpot;
 
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.Executor;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.RejectedExecutionHandler;
+import java.util.concurrent.SynchronousQueue;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -50,11 +57,36 @@ import java.util.concurrent.TimeUnit;
  */
 @SuppressWarnings("unchecked")
 public class Config<T extends Poolable> {
+  private static final Executor DEFAULT_EXECUTOR = buildDefaultExecutor();
+
+  private static Executor buildDefaultExecutor() {
+    int corePoolSize = 0;
+//    int maximumPoolSize = Runtime.getRuntime().availableProcessors() * 2;
+    int maximumPoolSize = Integer.MAX_VALUE;
+    long keepAliveTime = 60000;
+    TimeUnit unit = TimeUnit.MILLISECONDS;
+    BlockingQueue<Runnable> workQueue = new SynchronousQueue<Runnable>();
+//    BlockingQueue<Runnable> workQueue = new LinkedBlockingQueue<Runnable>();
+    ThreadFactory threadFactory = new ThreadFactory() {
+      public Thread newThread(Runnable r) {
+        // TODO deal with ThreadGroups and SecurityManager stuff.
+        Thread thread = new Thread(r);
+        thread.setName("StormpotAllocationThread-" + thread.getId());
+        return thread;
+      }
+    };
+    RejectedExecutionHandler rejectionHandler =
+        new ThreadPoolExecutor.AbortPolicy();
+    return new ThreadPoolExecutor(
+        corePoolSize, maximumPoolSize, keepAliveTime, unit, workQueue,
+        threadFactory, rejectionHandler);
+  }
 
   private int size = 10;
   private Expiration<? super T> expiration =
       new TimeSpreadExpiration(480000, 600000, TimeUnit.MILLISECONDS); // 8 to 10 minutes
   private Allocator<?> allocator;
+  private Executor executor = DEFAULT_EXECUTOR;
   
   /**
    * Build a new empty Config object. Most settings have reasonable default
@@ -150,12 +182,32 @@ public class Config<T extends Poolable> {
   }
 
   /**
+   * Get the configured Executor, that the pools should use for allocating
+   * their Poolables.
+   * @return The configured Executor.
+   */
+  public synchronized Executor getExecutor() {
+    return executor;
+  }
+
+  /**
+   * Set the Executor that the pools should use to do background allocation of
+   * their Poolables.
+   * @param executor The Executor the pools should use. Not null.
+   * @return This Config instance.
+   */
+  public synchronized Config<T> setExecutor(Executor executor) {
+    this.executor = executor;
+    return this;
+  }
+
+  /**
    * Check that the configuration is valid in terms of the <em>standard
    * configuration</em>. This method is useful in the
    * Pool implementation constructors.
    * @throws IllegalArgumentException If the size is less than one, if the
-   * {@link Expiration} is <code>null</code>, or if the {@link Allocator} is
-   * <code>null</code>.
+   * {@link Expiration} is <code>null</code>, if the {@link Allocator} is
+   * <code>null</code>, or if the Executor is <code>null</code>.
    */
   public synchronized void validate() throws IllegalArgumentException {
     if (size < 1) {
@@ -168,6 +220,9 @@ public class Config<T extends Poolable> {
     }
     if (expiration == null) {
       throw new IllegalArgumentException("Expiration cannot be null");
+    }
+    if (executor == null) {
+      throw new IllegalArgumentException("Executor cannot be null");
     }
   }
 }

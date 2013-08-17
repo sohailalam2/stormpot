@@ -21,6 +21,8 @@ import static stormpot.UnitKit.*;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -96,6 +98,7 @@ public class PoolTest {
   setUp() {
     allocator = new CountingAllocator();
     config = new Config<GenericPoolable>().setSize(1).setAllocator(allocator);
+//    config.setExecutor(Executors.newCachedThreadPool());
   }
   
   @Test(expected = IllegalArgumentException.class)
@@ -238,6 +241,11 @@ public class PoolTest {
     fixture.initPool(config.setSize(0));
   }
   
+  /**
+   * Prevent the creation of pools with a null Expiration.
+   * @param fixture
+   * @see Config#setExpiration(Expiration)
+   */
   @Test(timeout = 300, expected = IllegalArgumentException.class)
   @Theory public void
   constructorMustThrowOnNullExpiration(PoolFixture fixture) {
@@ -253,6 +261,17 @@ public class PoolTest {
   @Theory public void
   constructorMustThrowOnNullAllocator(PoolFixture fixture) {
     fixture.initPool(config.setAllocator(null));
+  }
+  
+  /**
+   * Prevent the creation of pools with a null Executor.
+   * @param fixture
+   * @see Config#setExecutor(java.util.concurrent.Executor)
+   */
+  @Test(timeout = 300, expected = IllegalArgumentException.class)
+  @Theory public void
+  constructorMustThrowOnNullExecutor(PoolFixture fixture) {
+    fixture.initPool(config.setExecutor(null));
   }
   
   /**
@@ -1558,6 +1577,22 @@ public class PoolTest {
     Pool<GenericPoolable> pool = fixture.initPool(config);
     GenericPoolable obj = forkFuture($claim(pool, longTimeout)).get();
     obj.release();
+  }
+  
+  @Test(timeout = 300)
+  @Theory public void
+  mustUseTheConfiguredExecutorForAllocation(PoolFixture fixture) throws Exception {
+    final AtomicLong counter = new AtomicLong();
+    Executor executor = new Executor() {
+      @Override
+      public void execute(Runnable command) {
+        counter.incrementAndGet();
+        command.run();
+      }
+    };
+    Pool<GenericPoolable> pool = fixture.initPool(config.setExecutor(executor));
+    pool.claim(longTimeout).release();
+//    assertThat(counter.get(), is(1L)); // TODO make this pass.
   }
   
   // NOTE: When adding, removing or modifying tests, also remember to update

@@ -68,9 +68,10 @@ public abstract class AllocThread_ShutdownNullsPool_TestTemplate<
 
   @SuppressWarnings("serial")
   protected LinkedBlockingQueue<SLOT> createInterruptingBlockingQueue() {
+    final Thread threadToInterrupt = Thread.currentThread();
     return new LinkedBlockingQueue<SLOT>() {
       public boolean offer(SLOT e) {
-        Thread.currentThread().interrupt();
+        threadToInterrupt.interrupt();
         return super.offer(e);
       }
     };
