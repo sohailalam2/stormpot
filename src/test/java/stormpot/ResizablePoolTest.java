@@ -44,6 +44,8 @@ public class ResizablePoolTest {
   
   @DataPoint public static PoolFixture queuePool = new QueuePoolFixture();
   @DataPoint public static PoolFixture blazePool = new BlazePoolFixture();
+  
+  @DataPoint public static ExecutorConfig cleanDefaultExecutor = ExecutorConfigs.cleanDefault();
 
   private CountingAllocator allocator;
   private Config<GenericPoolable> config;
@@ -54,32 +56,35 @@ public class ResizablePoolTest {
     config = new Config<GenericPoolable>().setAllocator(allocator).setSize(1);
   }
 
-  private ResizablePool<GenericPoolable> resizable(PoolFixture fixture) {
-    return (ResizablePool<GenericPoolable>) fixture.initPool(config);
+  private ResizablePool<GenericPoolable> resizable(
+      PoolFixture fixture, ExecutorConfig ec) {
+    return (ResizablePool<GenericPoolable>) fixture.initPool(config, ec);
   }
   
   @Theory public void
-  mustImplementResizablPool(PoolFixture fixture) {
-    assertThat(fixture.initPool(config), instanceOf(ResizablePool.class));
+  mustImplementResizablPool(PoolFixture fixture, ExecutorConfig ec) {
+    assertThat(fixture.initPool(config, ec), instanceOf(ResizablePool.class));
   }
   
   @Test(expected = IllegalArgumentException.class)
   @Theory public void
-  targetSizeMustBeGreaterThanZero(PoolFixture fixture) {
-    ResizablePool<GenericPoolable> pool = resizable(fixture);
+  targetSizeMustBeGreaterThanZero(PoolFixture fixture, ExecutorConfig ec) {
+    ResizablePool<GenericPoolable> pool = resizable(fixture, ec);
     pool.setTargetSize(0);
   }
   
   @Theory public void
-  targetSizeMustBeConfiguredSizeByDefault(PoolFixture fixture) {
+  targetSizeMustBeConfiguredSizeByDefault(
+      PoolFixture fixture, ExecutorConfig ec) {
     config.setSize(23);
-    ResizablePool<GenericPoolable> pool = resizable(fixture);
+    ResizablePool<GenericPoolable> pool = resizable(fixture, ec);
     assertThat(pool.getTargetSize(), is(23));
   }
   
   @Theory public void
-  getTargetSizeMustReturnLastSetTargetSize(PoolFixture fixture) {
-    ResizablePool<GenericPoolable> pool = resizable(fixture);
+  getTargetSizeMustReturnLastSetTargetSize(
+      PoolFixture fixture, ExecutorConfig ec) {
+    ResizablePool<GenericPoolable> pool = resizable(fixture, ec);
     pool.setTargetSize(3);
     assertThat(pool.getTargetSize(), is(3));
   }
@@ -96,8 +101,9 @@ public class ResizablePoolTest {
    */
   @Test(timeout = 300)
   @Theory public void
-  increasingSizeMustAllowMoreAllocations(PoolFixture fixture) throws Exception {
-    ResizablePool<GenericPoolable> pool = resizable(fixture);
+  increasingSizeMustAllowMoreAllocations(
+      PoolFixture fixture, ExecutorConfig ec) throws Exception {
+    ResizablePool<GenericPoolable> pool = resizable(fixture, ec);
     pool.claim(longTimeout); // depleted
     pool.setTargetSize(2);
     // now this mustn't block:
@@ -124,15 +130,15 @@ public class ResizablePoolTest {
    */
   @Test(timeout = 300)
   @Theory public void
-  decreasingSizeMustEventuallyDeallocateSurplusObjects(PoolFixture fixture)
-      throws Exception {
+  decreasingSizeMustEventuallyDeallocateSurplusObjects(
+      PoolFixture fixture, ExecutorConfig ec) throws Exception {
     int startingSize = 5;
     int newSize = 1;
     final Thread main = Thread.currentThread();
     CountingAllocator allocator = new UnparkingCountingAllocator(main);
     config.setSize(startingSize);
     config.setAllocator(allocator);
-    ResizablePool<GenericPoolable> pool = resizable(fixture);
+    ResizablePool<GenericPoolable> pool = resizable(fixture, ec);
     List<GenericPoolable> objs = new ArrayList<GenericPoolable>();
     
     while (allocator.allocations() != startingSize) {
@@ -175,8 +181,8 @@ public class ResizablePoolTest {
    */
   @Test(timeout = 300)
   @Theory public void
-  mustNotReallocateWhenReleasingExpiredObjectsIntoShrunkPool(PoolFixture fixture)
-      throws Exception {
+  mustNotReallocateWhenReleasingExpiredObjectsIntoShrunkPool(
+      PoolFixture fixture, ExecutorConfig ec) throws Exception {
     int startingSize = 5;
     int newSize = 1;
     CountingAllocator allocator = new CountingAllocator();
@@ -188,7 +194,7 @@ public class ResizablePoolTest {
         );
     config.setExpiration(expiration).setAllocator(allocator);
     config.setSize(startingSize);
-    ResizablePool<GenericPoolable> pool = resizable(fixture);
+    ResizablePool<GenericPoolable> pool = resizable(fixture, ec);
     List<GenericPoolable> objs = new ArrayList<GenericPoolable>();
     for (int i = 0; i < startingSize; i++) {
       objs.add(pool.claim(longTimeout));
