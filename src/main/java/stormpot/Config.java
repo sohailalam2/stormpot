@@ -19,7 +19,6 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Executor;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RejectedExecutionHandler;
-import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -61,12 +60,10 @@ public class Config<T extends Poolable> {
 
   static Executor buildDefaultExecutor() {
     int corePoolSize = 0;
-//    int maximumPoolSize = Runtime.getRuntime().availableProcessors() * 2;
-    int maximumPoolSize = Integer.MAX_VALUE;
+    int maximumPoolSize = 2 + Runtime.getRuntime().availableProcessors() * 2;
     long keepAliveTime = 60000;
     TimeUnit unit = TimeUnit.MILLISECONDS;
-    BlockingQueue<Runnable> workQueue = new SynchronousQueue<Runnable>();
-//    BlockingQueue<Runnable> workQueue = new LinkedBlockingQueue<Runnable>();
+    BlockingQueue<Runnable> workQueue = new LinkedBlockingQueue<Runnable>(2000);
     ThreadFactory threadFactory = new ThreadFactory() {
       public Thread newThread(Runnable r) {
         // TODO deal with ThreadGroups and SecurityManager stuff.
