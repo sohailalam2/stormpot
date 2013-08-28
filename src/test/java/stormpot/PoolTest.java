@@ -22,7 +22,6 @@ import static stormpot.UnitKit.*;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.Executor;
-import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -83,7 +82,7 @@ public class PoolTest {
       new TimeExpiration(1, TimeUnit.MILLISECONDS);
   private static final Expiration<Poolable> fiveMsTTL =
       new TimeExpiration(5, TimeUnit.MILLISECONDS);
-  private static final Timeout longTimeout = new Timeout(1, TimeUnit.SECONDS);
+  private static final Timeout longTimeout = new Timeout(1, TimeUnit.HOURS);
   private static final Timeout mediumTimeout = new Timeout(10, TimeUnit.MILLISECONDS);
   private static final Timeout shortTimeout = new Timeout(1, TimeUnit.MILLISECONDS);
   private static final Timeout zeroTimeout = new Timeout(0, TimeUnit.MILLISECONDS);
@@ -93,6 +92,7 @@ public class PoolTest {
 
   @DataPoint public static PoolFixture queuePool = new QueuePoolFixture();
   @DataPoint public static PoolFixture blazePool = new BlazePoolFixture();
+  
   
   @Before public void
   setUp() {
@@ -1592,8 +1592,10 @@ public class PoolTest {
     };
     Pool<GenericPoolable> pool = fixture.initPool(config.setExecutor(executor));
     pool.claim(longTimeout).release();
-//    assertThat(counter.get(), is(1L)); // TODO make this pass.
+    assertThat(counter.get(), is(1L));
   }
+  
+  // TODO must not pollute executor after shut down
   
   // NOTE: When adding, removing or modifying tests, also remember to update
   //       the Pool javadoc - especially the part about the promises.
