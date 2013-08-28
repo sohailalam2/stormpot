@@ -57,9 +57,9 @@ import java.util.concurrent.TimeUnit;
  */
 @SuppressWarnings("unchecked")
 public class Config<T extends Poolable> {
-  private static final Executor DEFAULT_EXECUTOR = buildDefaultExecutor();
+  static final Executor DEFAULT_EXECUTOR = buildDefaultExecutor();
 
-  private static Executor buildDefaultExecutor() {
+  static Executor buildDefaultExecutor() {
     int corePoolSize = 0;
 //    int maximumPoolSize = Runtime.getRuntime().availableProcessors() * 2;
     int maximumPoolSize = Integer.MAX_VALUE;
