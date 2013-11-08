@@ -1520,6 +1520,14 @@ public class PoolTest {
   
   // TODO must not pollute executor after shut down
 
+  // TODO what should it do about Executors that always throw
+  //      RejectedExecutionException?
+  // TODO what should happen if the pool size is 10 and the Executor throws
+  //      RejectedEE only after a couple of objects have been allocated?
+  // TODO what should happen if all objects gets allocated in the pool
+  //      constructor, so we can allocate up to the pool size, but then it
+  //      throws RejectedEE on all invocations after that?
+
   // Are these really issues?
   // TODO must handle nulls in the dead set during shutdown
   // TODO must handle nulls in the live set during shutdown
