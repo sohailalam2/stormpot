@@ -1692,7 +1692,15 @@ public class PoolTest {
   }
   
   // TODO must not pollute executor after shut down
-  
+
+  // Are these really issues?
+  // TODO must handle nulls in the dead set during shutdown
+  // TODO must handle nulls in the live set during shutdown
+  // TODO must not deallocate nulls when depleted pool is shrunk
+  // TODO (blaze pool) claimed slot in dead queue must move to live queue in shutdown
+  // TODO (blaze pool) must throw assertion error if attempting to deallocate non-dead slot
+  // TODO (blaze pool) polling claimed slot must send it back to the live queue
+
   // NOTE: When adding, removing or modifying tests, also remember to update
   //       the Pool javadoc - especially the part about the promises.
 }
