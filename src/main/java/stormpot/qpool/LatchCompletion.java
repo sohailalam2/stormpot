@@ -5,7 +5,7 @@ import java.util.concurrent.CountDownLatch;
 import stormpot.Completion;
 import stormpot.Timeout;
 
-public class LatchCompletion implements Completion {
+class LatchCompletion implements Completion {
 
   private final CountDownLatch latch;
 
