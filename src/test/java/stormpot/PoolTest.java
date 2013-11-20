@@ -441,7 +441,7 @@ public class PoolTest {
     // a number that is very close to the total number of random bits generated.
     double diff = Math.abs(bits - ones * 2);
     assertThat(diff, lessThan(bits * 0.005));
-  }
+  } // TODO racy in new QueuePool
   
   /**
    * Pool implementations might reuse their SlotInfo instances. We need to
@@ -1359,7 +1359,7 @@ public class PoolTest {
         givenPoolWithFailedAllocation(fixture, allocator, ec);
     // must complete before the test timeout:
     shutdown(pool).await(longTimeout);
-  }
+  } // TODO racy: queuePool, sharedCachingExecutor
   
   /**
    * Calling shutdown on a pool while being interrupted must still start the

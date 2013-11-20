@@ -98,7 +98,7 @@ implements LifecycledResizablePool<T> {
       try {
         QSlot<T> slot = dead.poll();
         int observedSize = currentSize.get();
-//        while (slot == null && observedSize > 0) {
+        while (slot == null && observedSize > 0) {
           slot = live.poll(20, TimeUnit.MILLISECONDS);
           if (slot == POISON_PILL) {
             slot = live.poll(20, TimeUnit.MILLISECONDS);
@@ -110,7 +110,7 @@ implements LifecycledResizablePool<T> {
           observedSize = currentSize.get();
           // TODO maybe do more to prevent infinite looping
           // we don't want to starve other tasks in the pool
-//        }
+        }
         if (slot != null) {
           deallocateSlot(slot);
         } else if (observedSize == 0) {
