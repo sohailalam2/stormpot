@@ -94,8 +94,10 @@ implements LifecycledResizablePool<T> {
         while (slot == null && observedSize > 0) {
           slot = live.poll(20, TimeUnit.MILLISECONDS);
           if (slot == poisonPill) {
-            slot = live.poll(20, TimeUnit.MILLISECONDS);
+            slot = live.poll(5, TimeUnit.MILLISECONDS);
             live.offer(poisonPill);
+            // TODO this is super ugly!!!
+            Thread.sleep(1); // Leave the live queue locks alone for a little while, to avoid starving other threads
           }
           observedSize = currentSize.get();
           // TODO maybe do more to prevent infinite looping
@@ -229,13 +231,9 @@ implements LifecycledResizablePool<T> {
         return null;
       }
       if (slot == poisonPill) {
-        // The poison pill means the pool has been shut down. The pill was
-        // transitioned from live to claimed just prior to this check, so we
-        // must transition it back to live and put it back into the live-queue
-        // before throwing our exception.
-        // Because we always throw when we see it, it will never become a
-        // tlr-slot, and so we don't need to worry about transitioning from
-        // tlr-claimed to live.
+        // The poison pill means the pool has been shut down.
+        // We must make sure to keep it circulating.
+        live.offer(poisonPill);
         throw new IllegalStateException("pool is shut down");
       }
       // Again, attempt to claim before checking validity. We mustn't kill
@@ -293,18 +291,6 @@ implements LifecycledResizablePool<T> {
   }
 
   private void checkForPoison(BSlot<T> slot) {
-//    if (slot == poisonPill) {
-//      // The poison pill means the pool has been shut down. The pill was
-//      // transitioned from live to claimed just prior to this check, so we
-//      // must transition it back to live and put it back into the live-queue
-//      // before throwing our exception.
-//      // Because we always throw when we see it, it will never become a
-//      // tlr-slot, and so we don't need to worry about transitioning from
-//      // tlr-claimed to live.
-//      slot.claim2live();
-//      live.offer(poisonPill);
-//      throw new IllegalStateException("pool is shut down");
-//    }
     if (slot.poison != null) {
       Exception poison = slot.poison;
       kill(slot, new Reallocate(slot));

@@ -1456,6 +1456,21 @@ public class PoolTest {
     shutdown(pool);
     pool.claim(longTimeout);
   }
+
+  /**
+   * Basically the same test as above, except now we wait for the shutdown
+   * process to make a bit of progress. This might expose different race bugs.
+   */
+  @Test(timeout = 300, expected = IllegalStateException.class)
+  @Theory public void
+  depletedPoolThatHasBeenShutDownMustThrowUponClaimEvenAfterSomeTime(
+      PoolFixture fixture, ExecutorConfig ec) throws Exception {
+    Pool<GenericPoolable> pool = fixture.initPool(config, ec);
+    pool.claim(longTimeout); // depleted
+    shutdown(pool);
+    spinwait(10);
+    pool.claim(longTimeout);
+  }
   
   /**
    * We must ensure that, for pool implementation that do biasing, the checking

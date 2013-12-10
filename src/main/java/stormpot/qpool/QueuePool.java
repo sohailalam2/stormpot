@@ -84,18 +84,21 @@ implements LifecycledResizablePool<T> {
     public void run() {
       try {
         QSlot<T> slot = null;
-        int observedSize = currentSize.get();
-        while (slot == null && observedSize > 0) {
+        int observedSize;
+        do {
+          observedSize = currentSize.get();
           // TODO maybe be a bit smarter about for how long we wait in poll()
           slot = live.poll(20, TimeUnit.MILLISECONDS);
           if (slot == POISON_PILL) {
-            slot = live.poll(20, TimeUnit.MILLISECONDS);
+            slot = live.poll(5, TimeUnit.MILLISECONDS);
             live.offer(POISON_PILL);
+            // TODO this is super ugly!!!
+            Thread.sleep(1); // Leave the live queue locks alone for a little while, to avoid starving other threads
           }
-          observedSize = currentSize.get();
           // TODO maybe do more to prevent infinite looping
           // we don't want to starve other tasks in the pool
-        }
+        } while (slot == null && observedSize > 0);
+
         if (slot != null) {
           deallocateSlot(slot);
         } else if (observedSize == 0) {
