@@ -15,9 +15,16 @@
  */
 package stormpot;
 
-import static org.hamcrest.Matchers.*;
-import static org.junit.Assert.*;
-import static stormpot.UnitKit.*;
+import org.junit.Before;
+import org.junit.Rule;
+import org.junit.Test;
+import org.junit.experimental.theories.DataPoint;
+import org.junit.experimental.theories.Theories;
+import org.junit.experimental.theories.Theory;
+import org.junit.rules.TestRule;
+import org.junit.runner.RunWith;
+import stormpot.bpool.BlazePoolFixture;
+import stormpot.qpool.QueuePoolFixture;
 
 import java.util.Collections;
 import java.util.List;
@@ -31,17 +38,9 @@ import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.LockSupport;
 import java.util.concurrent.locks.ReentrantLock;
 
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.experimental.theories.DataPoint;
-import org.junit.experimental.theories.Theories;
-import org.junit.experimental.theories.Theory;
-import org.junit.rules.TestRule;
-import org.junit.runner.RunWith;
-
-import stormpot.bpool.BlazePoolFixture;
-import stormpot.qpool.QueuePoolFixture;
+import static org.hamcrest.Matchers.*;
+import static org.junit.Assert.*;
+import static stormpot.UnitKit.*;
 
 /**
  * This is the generic test for Pool implementations. The test ensures that
@@ -782,7 +781,7 @@ public class PoolTest {
    * will be put in an AtomicReference, and we assert that it is indeed an
    * IllegalStateException.
    */
-  @Test(timeout = 300)
+//  @Test(timeout = 300)
   @Theory public void
   blockedClaimMustThrowWhenPoolIsShutDown(
       PoolFixture fixture, ExecutorConfig ec) throws Exception {

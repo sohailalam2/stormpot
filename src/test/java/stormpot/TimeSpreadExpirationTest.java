@@ -1,14 +1,15 @@
 package stormpot;
 
-import static org.hamcrest.Matchers.*;
-import static org.junit.Assert.*;
+import org.junit.Test;
 
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
-import org.junit.Test;
+import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.lessThan;
+import static org.junit.Assert.assertThat;
 
 public class TimeSpreadExpirationTest {
 
@@ -78,9 +79,9 @@ public class TimeSpreadExpirationTest {
     int top = base + span;
     int objectsPerMillis = 1000;
     int objects = span * objectsPerMillis;
-    int expirationCountTollerance = objectsPerMillis / 10;
-    int expirationsMin = objectsPerMillis - expirationCountTollerance;
-    int expirationsMax = objectsPerMillis + expirationCountTollerance;
+    int expirationCountTolerance = objectsPerMillis / 10;
+    int expirationsMin = objectsPerMillis - expirationCountTolerance;
+    int expirationsMax = objectsPerMillis + expirationCountTolerance;
     
     TimeSpreadExpiration expiration =
         new TimeSpreadExpiration(base, top, TimeUnit.MILLISECONDS);

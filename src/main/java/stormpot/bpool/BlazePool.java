@@ -15,16 +15,10 @@
  */
 package stormpot.bpool;
 
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.LinkedBlockingQueue;
+import stormpot.*;
 
-import stormpot.Completion;
-import stormpot.Config;
-import stormpot.Expiration;
-import stormpot.LifecycledResizablePool;
-import stormpot.PoolException;
-import stormpot.Poolable;
-import stormpot.Timeout;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * BlazePool is a highly optimised {@link LifecycledResizablePool}
@@ -40,29 +34,144 @@ import stormpot.Timeout;
  */
 public final class BlazePool<T extends Poolable>
 implements LifecycledResizablePool<T> {
+  /**
+   * Special slot used to signal that the pool has been shut down.
+   */
+  private final BSlot<T> poisonPill;
   private final BlockingQueue<BSlot<T>> live;
-  private final BlockingQueue<BSlot<T>> dead;
-  private final BAllocThread<T> allocThread;
   private final Expiration<? super T> deallocRule;
   // TODO consider making it a ThreadLocal of Ref<QSlot>, hoping that maybe
   // writes to it will be faster in not requiring a ThreadLocal look-up.
   private final ThreadLocal<BSlot<T>> tlr;
+  private final Executor executor;
+  private final Allocator<T> allocator;
+  private final AtomicInteger currentSize;
+  private final CountDownLatch shutdownLatch;
+
   private volatile boolean shutdown = false;
-  
+  private volatile int targetSize;
+
   /**
    * Construct a new BlazePool instance based on the given {@link Config}.
    * @param config The pool configuration to use.
    */
   public BlazePool(Config<T> config) {
+    poisonPill = new BSlot<T>(null);
+    // The poisonPill must be in a live state. Otherwise claim() will get stuck in
+    // an infinite loop when it tries to transition it to the claimed state.
+    poisonPill.dead2live();
     live = new LinkedBlockingQueue<BSlot<T>>();
-    dead = new LinkedBlockingQueue<BSlot<T>>();
     tlr = new ThreadLocal<BSlot<T>>();
     synchronized (config) {
       config.validate();
-      allocThread = new BAllocThread<T>(live, dead, config);
       deallocRule = config.getExpiration();
+      executor = config.getExecutor();
+      allocator = config.getAllocator();
+      targetSize = config.getSize();
     }
-    allocThread.start();
+
+    currentSize = new AtomicInteger(0);
+    shutdownLatch = new CountDownLatch(1);
+    for (int i = 0; i < targetSize; i++) {
+      executor.execute(new AllocateNew());
+    }
+  }
+
+  private class AllocateNew implements Runnable {
+    @Override
+    public void run() {
+      BSlot<T> slot = new BSlot<T>(live);
+      allocateSlot(slot);
+    }
+  }
+
+  private class DeallocateAny implements Runnable {
+    @Override
+    public void run() {
+      try {
+        BSlot<T> slot = null;
+        int observedSize = currentSize.get();
+        while (slot == null && observedSize > 0) {
+          slot = live.poll(20, TimeUnit.MILLISECONDS);
+          if (slot == poisonPill) {
+            slot = live.poll(20, TimeUnit.MILLISECONDS);
+            live.offer(poisonPill);
+          }
+          observedSize = currentSize.get();
+          // TODO maybe do more to prevent infinite looping
+          // we don't want to starve other tasks in the pool
+        }
+        if (slot != null) {
+          deallocateSlot(slot);
+        } else if (observedSize == 0) {
+          shutdownLatch.countDown();
+        }
+      } catch (InterruptedException e) {
+        // TODO so... what do?
+      }
+    }
+  }
+
+  private class Reallocate implements Runnable {
+    private BSlot<T> slot;
+
+    public Reallocate(BSlot<T> slot) {
+      this.slot = slot;
+    }
+
+    @Override
+    public void run() {
+      deallocateSlot(slot);
+      allocateSlot(slot);
+    }
+  }
+
+  private class Deallocate implements Runnable {
+    private BSlot<T> slot;
+
+    public Deallocate(BSlot<T> slot) {
+      this.slot = slot;
+    }
+
+    @Override
+    public void run() {
+      deallocateSlot(slot);
+    }
+  }
+
+  private void allocateSlot(BSlot<T> slot) {
+    if (currentSize.incrementAndGet() > targetSize) {
+      currentSize.decrementAndGet();
+      return;
+    }
+    try {
+      slot.obj = allocator.allocate(slot);
+      if (slot.obj == null) {
+        slot.poison = new NullPointerException("allocation returned null");
+      }
+    } catch (Exception e) {
+      slot.poison = e;
+    }
+    slot.created = System.currentTimeMillis();
+    slot.claims = 0;
+    slot.stamp = 0;
+    slot.dead2live();
+    live.offer(slot);
+  }
+
+  private void deallocateSlot(BSlot<T> slot) {
+    T obj = slot.obj;
+    slot.obj = null;
+    slot.poison = null;
+    try {
+      allocator.deallocate(obj);
+    } catch (Exception ignored) {
+      // Catch whatever the deallocate method might throw, and ignore it.
+    }
+    int newSize = currentSize.decrementAndGet();
+    if (newSize == 0 && shutdown) {
+      shutdownLatch.countDown();
+    }
   }
 
   public T claim(Timeout timeout) throws PoolException,
@@ -159,7 +268,7 @@ implements LifecycledResizablePool<T> {
     }
     if (invalid) {
       // it's invalid - into the dead queue with it and continue looping
-      kill(slot);
+      kill(slot, new Reallocate(slot));
       if (exception != null) {
         throw exception;
       }
@@ -168,9 +277,7 @@ implements LifecycledResizablePool<T> {
   }
 
   private void checkForPoison(BSlot<T> slot) {
-    // TODO move the POISON_PILL back into the BlazePool class to avoid having
-    // to load the allocThread reference in this hot method.
-    if (slot == allocThread.POISON_PILL) {
+    if (slot == poisonPill) {
       // The poison pill means the pool has been shut down. The pill was
       // transitioned from live to claimed just prior to this check, so we
       // must transition it back to live and put it back into the live-queue
@@ -179,21 +286,21 @@ implements LifecycledResizablePool<T> {
       // tlr-slot, and so we don't need to worry about transitioning from
       // tlr-claimed to live.
       slot.claim2live();
-      live.offer(allocThread.POISON_PILL);
+      live.offer(poisonPill);
       throw new IllegalStateException("pool is shut down");
     }
     if (slot.poison != null) {
       Exception poison = slot.poison;
-      kill(slot);
+      kill(slot, new Reallocate(slot));
       throw new PoolException("allocation failed", poison);
     }
     if (shutdown) {
-      kill(slot); // TODO Mutation testing not killed when removing this call.
+      kill(slot, new Deallocate(slot)); // TODO Mutation testing not killed when removing this call.
       throw new IllegalStateException("pool is shut down");
     }
   }
 
-  private void kill(BSlot<T> slot) {
+  private void kill(BSlot<T> slot, Runnable action) {
     // The use of claim2dead() here ensures that we don't put slots into the
     // dead-queue more than once. Many threads might have this as their
     // TLR-slot and try to tlr-claim it, but only when a slot has been normally
@@ -203,7 +310,7 @@ implements LifecycledResizablePool<T> {
     for (;;) {
       int state = slot.getState();
       if (state == BSlot.CLAIMED && slot.claim2dead()) {
-        dead.offer(slot);
+        executor.execute(action);
         return;
       }
       if (state == BSlot.TLR_CLAIMED && slot.claimTlr2live()) {
@@ -212,20 +319,40 @@ implements LifecycledResizablePool<T> {
     }
   }
 
-  public Completion shutdown() {
-    shutdown = true;
-    allocThread.interrupt();
-    return new BPoolShutdownCompletion(allocThread);
+  public synchronized Completion shutdown() {
+    if (!shutdown) {
+      shutdown = true;
+      live.offer(poisonPill);
+      for (int i = 0; i < targetSize; i++) {
+        executor.execute(new DeallocateAny());
+      }
+      targetSize = 0;
+    }
+    return new LatchCompletion(shutdownLatch);
   }
 
-  public void setTargetSize(int size) {
+  public synchronized void setTargetSize(int size) {
     if (size < 1) {
       throw new IllegalArgumentException("target size must be at least 1");
     }
-    allocThread.setTargetSize(size);
+    if (!shutdown) {
+      int delta = targetSize - size;
+      if (delta < 0) {
+        // We're growing the pool
+        for (; delta < 0; delta++) {
+          executor.execute(new AllocateNew());
+        }
+      } else {
+        // We're shrinking the pool
+        for (; delta > 0; delta--) {
+          executor.execute(new DeallocateAny());
+        }
+      }
+      targetSize = size;
+    }
   }
 
   public int getTargetSize() {
-    return allocThread.getTargetSize();
+    return targetSize;
   }
 }

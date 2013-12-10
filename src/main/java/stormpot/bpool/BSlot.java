@@ -15,14 +15,14 @@
  */
 package stormpot.bpool;
 
-import java.util.Random;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.atomic.AtomicInteger;
-
 import stormpot.PoolException;
 import stormpot.Poolable;
 import stormpot.Slot;
 import stormpot.SlotInfo;
+
+import java.util.Random;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.atomic.AtomicInteger;
 
 class BSlot<T extends Poolable> implements Slot, SlotInfo<T> {
   static final int LIVING = 1;

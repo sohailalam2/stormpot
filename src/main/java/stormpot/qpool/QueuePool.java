@@ -15,21 +15,10 @@
  */
 package stormpot.qpool;
 
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.Executor;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
+import stormpot.*;
 
-import stormpot.Allocator;
-import stormpot.Completion;
-import stormpot.Config;
-import stormpot.Expiration;
-import stormpot.LifecycledResizablePool;
-import stormpot.PoolException;
-import stormpot.Poolable;
-import stormpot.Timeout;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * QueuePool is a fairly simple {@link LifecycledResizablePool} implementation
@@ -52,32 +41,30 @@ implements LifecycledResizablePool<T> {
   private final QSlot<T> POISON_PILL = new QSlot<T>(null);
   
   private final BlockingQueue<QSlot<T>> live;
-  private final BlockingQueue<QSlot<T>> dead;
   private final Expiration<? super T> deallocRule;
-  private volatile boolean shutdown = false;
-  
   private final Executor executor;
   private final Allocator<T> allocator;
   private final AtomicInteger currentSize;
-  private volatile int targetSize;
   private final CountDownLatch shutdownLatch;
-  
+
+  private volatile boolean shutdown = false;
+  private volatile int targetSize;
+
   /**
    * Construct a new QueuePool instance based on the given {@link Config}.
    * @param config The pool configuration to use.
    */
   public QueuePool(Config<T> config) {
     live = new LinkedBlockingQueue<QSlot<T>>();
-    dead = new LinkedBlockingQueue<QSlot<T>>();
     synchronized (config) {
       config.validate();
       deallocRule = config.getExpiration();
       executor = config.getExecutor();
       allocator = config.getAllocator();
-      currentSize = new AtomicInteger(0);
       targetSize = config.getSize();
     }
-    
+
+    currentSize = new AtomicInteger(0);
     shutdownLatch = new CountDownLatch(1);
     for (int i = 0; i < targetSize; i++) {
       executor.execute(new AllocateNew());
@@ -96,16 +83,14 @@ implements LifecycledResizablePool<T> {
     @Override
     public void run() {
       try {
-        QSlot<T> slot = dead.poll();
+        QSlot<T> slot = null;
         int observedSize = currentSize.get();
         while (slot == null && observedSize > 0) {
+          // TODO maybe be a bit smarter about for how long we wait in poll()
           slot = live.poll(20, TimeUnit.MILLISECONDS);
           if (slot == POISON_PILL) {
             slot = live.poll(20, TimeUnit.MILLISECONDS);
             live.offer(POISON_PILL);
-          }
-          if (slot == null) {
-            slot = dead.poll();
           }
           observedSize = currentSize.get();
           // TODO maybe do more to prevent infinite looping
@@ -150,10 +135,8 @@ implements LifecycledResizablePool<T> {
   }
   
   private void allocateSlot(QSlot<T> slot) {
-    int newSize = currentSize.incrementAndGet();
-    int targetSize2 = targetSize;
-    if (newSize > targetSize2) {
-      newSize = currentSize.decrementAndGet();
+    if (currentSize.incrementAndGet() > targetSize) {
+      currentSize.decrementAndGet();
       return;
     }
     try {

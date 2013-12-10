@@ -405,6 +405,21 @@ programs.
    all objects *happens-before* the
    {@link stormpot.Completion#await(Timeout) await of a shutdown completion} returns.
 
+### Dangers
+
+Note that even though pools are thread-safe, they are not inherently
+publication-safe. This means that client code is responsible for safely
+publishing the Pool instances among its threads.
+
+The reason is that the pool implementations do volatile writes in their
+constructor, and an unsafe publication of the instance (an ordinary field
+write, for instance) is allowed to be reordered such that other threads
+observe it to happen before the volatile write. Though I don't know of any
+JVM that does this, it is none the less permitted as per the letter of the
+Java Language Specification. Search the concurrency-interest mailing list
+archives for "Volatile stores in constructors" (November & December, 2013)
+to find out more.
+
 ### Interruption
 
 The (only two) blocking methods, {@link stormpot.Pool#claim(Timeout)} and

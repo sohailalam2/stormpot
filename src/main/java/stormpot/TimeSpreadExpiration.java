@@ -2,6 +2,7 @@ package stormpot;
 
 import java.util.concurrent.TimeUnit;
 
+// TODO javadoc for the TimeSpreadExpiration class
 public class TimeSpreadExpiration implements Expiration<Poolable> {
 
   private final long lowerBoundMillis;
