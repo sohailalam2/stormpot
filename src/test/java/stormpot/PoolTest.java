@@ -781,7 +781,7 @@ public class PoolTest {
    * will be put in an AtomicReference, and we assert that it is indeed an
    * IllegalStateException.
    */
-//  @Test(timeout = 300)
+  @Test(timeout = 300)
   @Theory public void
   blockedClaimMustThrowWhenPoolIsShutDown(
       PoolFixture fixture, ExecutorConfig ec) throws Exception {

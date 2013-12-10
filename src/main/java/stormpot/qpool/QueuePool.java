@@ -135,6 +135,9 @@ implements LifecycledResizablePool<T> {
   }
   
   private void allocateSlot(QSlot<T> slot) {
+    if (slot == POISON_PILL) {
+      throw new AssertionError("allocateSlot(POISON_PILL)");
+    }
     if (currentSize.incrementAndGet() > targetSize) {
       currentSize.decrementAndGet();
       return;
@@ -155,6 +158,9 @@ implements LifecycledResizablePool<T> {
   }
   
   private void deallocateSlot(QSlot<T> slot) {
+    if (slot == POISON_PILL) {
+      throw new AssertionError("deallocateSlot(POISON_PILL)");
+    }
     T obj = slot.obj;
     slot.obj = null;
     slot.poison = null;
