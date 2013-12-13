@@ -67,7 +67,14 @@ implements LifecycledResizablePool<T> {
     currentSize = new AtomicInteger(0);
     shutdownLatch = new CountDownLatch(1);
     for (int i = 0; i < targetSize; i++) {
-      executor.execute(new AllocateNew());
+      try {
+        executor.execute(new AllocateNew());
+      } catch (Exception e) {
+        currentSize.incrementAndGet();
+        QSlot<T> slot = new QSlot<T>(live);
+        slot.poison = e;
+        live.offer(slot);
+      }
     }
   }
   
@@ -83,7 +90,7 @@ implements LifecycledResizablePool<T> {
     @Override
     public void run() {
       try {
-        QSlot<T> slot = null;
+        QSlot<T> slot;
         int observedSize;
         do {
           observedSize = currentSize.get();
@@ -138,9 +145,6 @@ implements LifecycledResizablePool<T> {
   }
   
   private void allocateSlot(QSlot<T> slot) {
-    if (slot == POISON_PILL) {
-      throw new AssertionError("allocateSlot(POISON_PILL)");
-    }
     if (currentSize.incrementAndGet() > targetSize) {
       currentSize.decrementAndGet();
       return;
@@ -158,12 +162,10 @@ implements LifecycledResizablePool<T> {
     slot.stamp = 0;
     slot.claimed.set(true);
     slot.release(slot.obj);
+//    live.offer(slot); // TODO change the above two lines to this?
   }
   
   private void deallocateSlot(QSlot<T> slot) {
-    if (slot == POISON_PILL) {
-      throw new AssertionError("deallocateSlot(POISON_PILL)");
-    }
     T obj = slot.obj;
     slot.obj = null;
     slot.poison = null;
@@ -185,8 +187,19 @@ implements LifecycledResizablePool<T> {
     }
     if (slot.poison != null) {
       Exception poison = slot.poison;
-      executor.execute(new Reallocate(slot));
-      throw new PoolException("allocation failed", poison);
+      PoolException poolException = new PoolException("allocation failed", poison);
+      try {
+        executor.execute(new Reallocate(slot));
+      } catch (Exception e) {
+        // We unfortunately have to silently ignore this exception for now.
+        // When we move to Java7 as a target, we can add it as a suppressed exception.
+//        poolException.addSuppressed(e);
+        // Meanwhile, we still cannot be allowed to throw away slot objects!
+        // They must remain circulating:
+        slot.poison = e;
+        live.offer(slot); // TODO test for this
+      }
+      throw poolException;
     }
     if (shutdown) {
       executor.execute(new Deallocate(slot));
@@ -242,7 +255,6 @@ implements LifecycledResizablePool<T> {
       for (int i = 0; i < targetSize; i++) {
         executor.execute(new DeallocateAny());
       }
-      targetSize = 0;
     }
     return new LatchCompletion(shutdownLatch);
   }

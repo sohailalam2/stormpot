@@ -15,14 +15,6 @@
  */
 package stormpot;
 
-import static org.junit.Assert.*;
-import static org.hamcrest.Matchers.*;
-
-import java.util.ArrayList;
-import java.util.List;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.LockSupport;
-
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -31,9 +23,18 @@ import org.junit.experimental.theories.Theories;
 import org.junit.experimental.theories.Theory;
 import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
-
 import stormpot.bpool.BlazePoolFixture;
 import stormpot.qpool.QueuePoolFixture;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.LockSupport;
+
+import static org.hamcrest.Matchers.*;
+import static org.junit.Assert.assertThat;
+import static stormpot.UnitKit.shutdown;
 
 @RunWith(Theories.class)
 public class ResizablePoolTest {
@@ -45,7 +46,12 @@ public class ResizablePoolTest {
   @DataPoint public static PoolFixture queuePool = new QueuePoolFixture();
   @DataPoint public static PoolFixture blazePool = new BlazePoolFixture();
   
-  @DataPoint public static ExecutorConfig cleanDefaultExecutor = ExecutorConfigs.cleanDefault();
+  @DataPoint public static ExecutorConfig cleanDefaultExecutor =
+      ExecutorConfigs.cleanDefault();
+  @DataPoint public static ExecutorConfig sharedCachingExecutor =
+      ExecutorConfigs.constantly(Executors.newCachedThreadPool());
+  @DataPoint public static ExecutorConfig singleThreadedExecutor =
+      ExecutorConfigs.singleThreaded();
 
   private Config<GenericPoolable> config;
   
@@ -61,7 +67,7 @@ public class ResizablePoolTest {
   }
   
   @Theory public void
-  mustImplementResizablPool(PoolFixture fixture, ExecutorConfig ec) {
+  mustImplementResizablePool(PoolFixture fixture, ExecutorConfig ec) {
     assertThat(fixture.initPool(config, ec), instanceOf(ResizablePool.class));
   }
   
@@ -87,6 +93,16 @@ public class ResizablePoolTest {
     pool.setTargetSize(3);
     assertThat(pool.getTargetSize(), is(3));
   }
+
+  @Theory public void
+  settingTargetSizeOnPoolThatHasBeenShutDownDoesNothing(
+      PoolFixture fixture, ExecutorConfig ec) {
+    config.setSize(3);
+    ResizablePool<GenericPoolable> pool = resizable(fixture, ec);
+    shutdown(pool);
+    pool.setTargetSize(10); // this should do nothing, because it's shut down
+    assertThat(pool.getTargetSize(), is(3));
+  }
   
   /**
    * When we increase the size of a depleted pool, it should be possible to
@@ -95,8 +111,6 @@ public class ResizablePoolTest {
    * We test for this by depleting a pool, upping the size and then claiming
    * again with a timeout that is longer than the timeout of the test. The test
    * pass if it does not timeout.
-   * @param fixture
-   * @throws Exception
    */
   @Test(timeout = 300)
   @Theory public void
@@ -124,8 +138,6 @@ public class ResizablePoolTest {
    * allocator to register that same number of deallocations. This has to
    * happen before the test times out. After that, we check that the difference
    * between the allocations and the deallocations matches the new target size.
-   * @param fixture
-   * @throws Exception
    */
   @Test(timeout = 300)
   @Theory public void
@@ -174,9 +186,6 @@ public class ResizablePoolTest {
    * releasing objects. We don't check the deallocations because it's
    * complicated and we did it in the
    * decreasingSizeMustEventuallyDeallocateSurplusObjects test above.
-   * 
-   * @param fixture
-   * @throws Exception
    */
   @Test(timeout = 300)
   @Theory public void
@@ -209,4 +218,6 @@ public class ResizablePoolTest {
     assertThat(pool.claim(shortTimeout), nullValue());
     assertThat(allocator.allocations(), is(startingSize));
   }
+
+  // TODO increasing and decreasing size in quick succession must eventually settle on target size
 }

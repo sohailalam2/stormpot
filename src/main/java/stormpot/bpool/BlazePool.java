@@ -73,7 +73,15 @@ implements LifecycledResizablePool<T> {
     currentSize = new AtomicInteger(0);
     shutdownLatch = new CountDownLatch(1);
     for (int i = 0; i < targetSize; i++) {
-      executor.execute(new AllocateNew());
+      try {
+        executor.execute(new AllocateNew());
+      } catch (Exception e) {
+        currentSize.incrementAndGet();
+        BSlot<T> slot = new BSlot<T>(live);
+        slot.poison = e;
+        slot.dead2live();
+        live.offer(slot);
+      }
     }
   }
 
@@ -89,20 +97,21 @@ implements LifecycledResizablePool<T> {
     @Override
     public void run() {
       try {
-        BSlot<T> slot = null;
-        int observedSize = currentSize.get();
-        while (slot == null && observedSize > 0) {
+        BSlot<T> slot;
+        int observedSize;
+        do {
           slot = live.poll(20, TimeUnit.MILLISECONDS);
+          observedSize = currentSize.get();
           if (slot == poisonPill) {
             slot = live.poll(5, TimeUnit.MILLISECONDS);
             live.offer(poisonPill);
             // TODO this is super ugly!!!
             Thread.sleep(1); // Leave the live queue locks alone for a little while, to avoid starving other threads
           }
-          observedSize = currentSize.get();
           // TODO maybe do more to prevent infinite looping
           // we don't want to starve other tasks in the pool
-        }
+        } while (slot == null && observedSize > 0);
+
         if (slot != null) {
           deallocateSlot(slot);
         } else if (observedSize == 0) {
@@ -142,9 +151,6 @@ implements LifecycledResizablePool<T> {
   }
 
   private void allocateSlot(BSlot<T> slot) {
-    if (slot == poisonPill) {
-      throw new AssertionError("allocateSlot(poisonPill)");
-    }
     if (currentSize.incrementAndGet() > targetSize) {
       currentSize.decrementAndGet();
       return;
@@ -165,9 +171,6 @@ implements LifecycledResizablePool<T> {
   }
 
   private void deallocateSlot(BSlot<T> slot) {
-    if (slot == poisonPill) {
-      throw new AssertionError("deallocateSlot(poisonPill)");
-    }
     T obj = slot.obj;
     slot.obj = null;
     slot.poison = null;
@@ -282,7 +285,7 @@ implements LifecycledResizablePool<T> {
     }
     if (invalid) {
       // it's invalid - into the dead queue with it and continue looping
-      kill(slot, new Reallocate(slot));
+      kill(slot, new Reallocate(slot), exception);
       if (exception != null) {
         throw exception;
       }
@@ -293,16 +296,19 @@ implements LifecycledResizablePool<T> {
   private void checkForPoison(BSlot<T> slot) {
     if (slot.poison != null) {
       Exception poison = slot.poison;
-      kill(slot, new Reallocate(slot));
-      throw new PoolException("allocation failed", poison);
+      PoolException cause = new PoolException("allocation failed", poison);
+      kill(slot, new Reallocate(slot), cause);
+      throw cause;
     }
     if (shutdown) {
-      kill(slot, new Deallocate(slot)); // TODO Mutation testing not killed when removing this call.
-      throw new IllegalStateException("pool is shut down");
+      // TODO Mutation testing not killed when removing this call.
+      IllegalStateException cause = new IllegalStateException("pool is shut down");
+      kill(slot, new Deallocate(slot), cause);
+      throw cause;
     }
   }
 
-  private void kill(BSlot<T> slot, Runnable action) {
+  private void kill(BSlot<T> slot, Runnable action, RuntimeException cause) {
     // The use of claim2dead() here ensures that we don't put slots into the
     // dead-queue more than once. Many threads might have this as their
     // TLR-slot and try to tlr-claim it, but only when a slot has been normally
@@ -312,7 +318,19 @@ implements LifecycledResizablePool<T> {
     for (;;) {
       int state = slot.getState();
       if (state == BSlot.CLAIMED && slot.claim2dead()) {
-        executor.execute(action);
+        try {
+          executor.execute(action);
+        } catch (Exception e) {
+          // We unfortunately have to silently ignore this exception for now.
+          // When we move to Java7 as a target, we can add it as a suppressed exception.
+//        poolException.addSuppressed(e);
+          // Meanwhile, we still cannot be allowed to throw away slot objects!
+          // They must remain circulating:
+          slot.poison = e;
+          // Never put dead slots in the live queue, or we'll get an infinite loop!
+          slot.dead2live();
+          live.offer(slot);
+        }
         return;
       }
       if (state == BSlot.TLR_CLAIMED && slot.claimTlr2live()) {
@@ -328,7 +346,6 @@ implements LifecycledResizablePool<T> {
       for (int i = 0; i < targetSize; i++) {
         executor.execute(new DeallocateAny());
       }
-      targetSize = 0;
     }
     return new LatchCompletion(shutdownLatch);
   }

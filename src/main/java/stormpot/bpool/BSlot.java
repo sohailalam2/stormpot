@@ -50,13 +50,13 @@ class BSlot<T extends Poolable> implements Slot, SlotInfo<T> {
       slotState = state.get();
       // We loop here because TLR_CLAIMED slots can be concurrently changed
       // into normal CLAIMED slots.
-    } while (isClaimed(slotState));
+    } while (tryReleaseFrom(slotState));
     if (slotState == CLAIMED) {
       live.offer(this);
     }
   }
   
-  private boolean isClaimed(int slotState) {
+  private boolean tryReleaseFrom(int slotState) {
     if (slotState == TLR_CLAIMED) {
       return !claimTlr2live();
     } else if (slotState == CLAIMED) {
@@ -130,10 +130,6 @@ class BSlot<T extends Poolable> implements Slot, SlotInfo<T> {
     return obj;
   }
 
-  public boolean isDead() {
-    return state.get() == DEAD;
-  }
-  
   public int getState() {
     return state.get();
   }

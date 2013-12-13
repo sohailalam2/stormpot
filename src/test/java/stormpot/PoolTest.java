@@ -30,6 +30,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -77,7 +78,7 @@ import static stormpot.UnitKit.*;
 @RunWith(Theories.class)
 public class PoolTest {
   @Rule public final TestRule failurePrinter = new FailurePrinterTestRule();
-  
+
   private static final Expiration<Poolable> oneMsTTL =
       new TimeExpiration(1, TimeUnit.MILLISECONDS);
   private static final Expiration<Poolable> fiveMsTTL =
@@ -99,7 +100,7 @@ public class PoolTest {
       ExecutorConfigs.constantly(Executors.newCachedThreadPool());
   @DataPoint public static ExecutorConfig singleThreadedExecutor =
       ExecutorConfigs.singleThreaded();
-  
+
   @Before public void
   setUp() {
     allocator = new CountingAllocator();
@@ -434,13 +435,13 @@ public class PoolTest {
     for (int i = 0; i < nums; i++) {
       ones += Integer.bitCount(slotInfo.randomInt());
     }
-    // In the random data that we collect, we should a roughly even split
+    // In the random data that we collect, we should see a roughly even split
     // in the bits between ones and zeros.
     // So, if we count all the one bits and double that number, we should get
     // a number that is very close to the total number of random bits generated.
     double diff = Math.abs(bits - ones * 2);
     assertThat(diff, lessThan(bits * 0.005));
-  } // TODO racy in new QueuePool
+  }
   
   /**
    * Pool implementations might reuse their SlotInfo instances. We need to
@@ -1021,8 +1022,7 @@ public class PoolTest {
       PoolFixture fixture, ExecutorConfig ec) throws Exception {
     Pool<GenericPoolable> pool = fixture.initPool(config, ec);
     assertNotNull("Did not deplete pool in time", pool.claim(longTimeout));
-    Completion completion = shutdown(pool);
-    return completion;
+    return shutdown(pool);
   }
   
   /**
@@ -1067,8 +1067,7 @@ public class PoolTest {
     Pool<GenericPoolable> pool = fixture.initPool(config, ec);
     shutdown(pool).await(longTimeout);
     Thread.currentThread().interrupt();
-    Completion completion = shutdown(pool);
-    return completion;
+    return shutdown(pool);
   }
   
   /**
@@ -1358,7 +1357,7 @@ public class PoolTest {
         givenPoolWithFailedAllocation(fixture, allocator, ec);
     // must complete before the test timeout:
     shutdown(pool).await(longTimeout);
-  } // TODO racy: queuePool, sharedCachingExecutor
+  }
   
   /**
    * Calling shutdown on a pool while being interrupted must still start the
@@ -1512,7 +1511,7 @@ public class PoolTest {
   }
   
   /**
-   * TODO javadoc
+   * Make sure that the configured Executor is used for offloading the allocation work.
    */
   @Test(timeout = 300)
   @Theory public void
@@ -1533,20 +1532,92 @@ public class PoolTest {
   }
   
   // TODO must not pollute executor after shut down
+  @Test(timeout = 300)
+  @Theory public void
+  mustNotPolluteExecutorAfterShutDown(PoolFixture fixture, ExecutorConfig ec) throws Exception {
+    AtomicLong counter = new AtomicLong();
+    config.setSize(5);
+    config.setExpiration(new TimeExpiration(2, TimeUnit.MILLISECONDS));
+    ExecutorConfig executorConfig = ExecutorConfigs.countingWrapper(ec, counter);
+    Pool<GenericPoolable> pool = fixture.initPool(config, executorConfig);
+    GenericPoolable a = pool.claim(longTimeout);
+    GenericPoolable b = pool.claim(longTimeout);
+    GenericPoolable c = pool.claim(longTimeout);
+    b.release();
+    spinwait(3);
+    GenericPoolable d = pool.claim(longTimeout);
+    c.release();
+    Completion completion = shutdown(pool);
+    a.release();
+    d.release();
+    completion.await(longTimeout);
 
-  // TODO what should it do about Executors that always throw
-  //      RejectedExecutionException?
-  // TODO what should happen if the pool size is 10 and the Executor throws
-  //      RejectedEE only after a couple of objects have been allocated?
-  // TODO what should happen if all objects gets allocated in the pool
-  //      constructor, so we can allocate up to the pool size, but then it
-  //      throws RejectedEE on all invocations after that?
+    assertThat(counter.get(), is(0L));
+  }
+
+  @Test(timeout = 300)
+  @Theory public void
+  rejectedExecutionExceptionInConstructorMustBubbleOutThroughClaim(
+      PoolFixture fixture, ExecutorConfig ec) throws Exception {
+    ExecutorConfig executorConfig = ExecutorConfigs.rejectingWrapper(ec, -1);
+    Pool<GenericPoolable> pool = fixture.initPool(config, executorConfig);
+
+    try {
+      pool.claim(longTimeout);
+      fail("PoolException should have been thrown.");
+    } catch (PoolException e) {
+      assertThat(e.getCause(), instanceOf(RejectedExecutionException.class));
+    }
+  }
+
+  @Test(timeout = 300)
+  @Theory public void
+  mustNotLeakSlotsFromExecutionsRejectedDuringConstruction(
+      PoolFixture fixture, ExecutorConfig ec) throws Exception {
+    ExecutorConfig executorConfig = ExecutorConfigs.rejectingWrapper(ec, 1);
+    Pool<GenericPoolable> pool = fixture.initPool(config, executorConfig);
+
+    try {
+      pool.claim(longTimeout);
+      fail("PoolException should have been thrown for a rejected execution");
+    } catch (PoolException ignore) {}
+
+    // Only the first execution should be rejected, so now things should be
+    // back to normal, and we should not time out here:
+    pool.claim(longTimeout).release();
+    // ... and shut down only completes if nothing has leaked:
+    shutdown(pool).await(longTimeout);
+  }
+
+  @Test(timeout = 300)
+  @Theory public void
+  mustNotLeakSlotsWhenExecutionsStopBeingRejectedOnlyAfterAWhile(
+      PoolFixture fixture, ExecutorConfig ec) throws Exception {
+    ExecutorConfig executorConfig = ExecutorConfigs.rejectingWrapper(ec, 2);
+    Pool<GenericPoolable> pool = fixture.initPool(config, executorConfig);
+
+    try {
+      pool.claim(longTimeout);
+      fail("PoolException should have been thrown for a rejected execution");
+    } catch (PoolException ignore) {}
+
+    try {
+      pool.claim(longTimeout);
+      fail("PoolException should have been thrown for a rejected execution");
+    } catch (PoolException ignore) {}
+
+    // One execution was rejected in the constructor, another during the first
+    // claim. The second rejection bubbles out of the second claim, but then
+    // things start to work again, and this third claim should succeed:
+    pool.claim(longTimeout).release();
+    // ... and shut down only completes if nothing has leaked:
+    shutdown(pool).await(longTimeout);
+  }
+
+  // TODO must not leak slots if expiration throws Throwable instead of exception
 
   // Are these really issues?
-  // TODO must handle nulls in the dead set during shutdown
-  // TODO must handle nulls in the live set during shutdown
   // TODO must not deallocate nulls when depleted pool is shrunk
-  // TODO (blaze pool) claimed slot in dead queue must move to live queue in shutdown
   // TODO (blaze pool) must throw assertion error if attempting to deallocate non-dead slot
   // TODO (blaze pool) polling claimed slot must send it back to the live queue
 
