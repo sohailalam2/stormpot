@@ -58,6 +58,14 @@ public class Timeout {
   }
 
   /**
+   * Get the timeout value in terms of the {@link #getBaseUnit() base unit}.
+   * @return A numerical value of the timeout. Possibly zero or negative.
+   */
+  public long getTimeoutInBaseUnit() {
+    return timeoutBase;
+  }
+
+  /**
    * Get the unit for the {@link #getTimeout() timeout value}.
    * @return The {@link TimeUnit} of the timeout value. Never <code>null</code>.
    */
@@ -108,7 +116,7 @@ public class Timeout {
 
   @Override
   public int hashCode() {
-    return 31 * 1 + (int) (timeoutBase ^ (timeoutBase >>> 32));
+    return 31 * (1 + (int) (timeoutBase ^ (timeoutBase >>> 32)));
   }
 
   /**

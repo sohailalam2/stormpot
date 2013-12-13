@@ -222,13 +222,11 @@ implements LifecycledResizablePool<T> {
       // leak on our hands.
     }
     long deadline = timeout.getDeadline();
-    boolean notClaimed = true;
-    do {
-      // TODO With both getDeadline and getTimeLeft, we are making two
-      // measurements of time in a row, here. Measuring time is expensive, so
-      // it might be worth it to try and reduce it to just one call.
-      long timeoutLeft = timeout.getTimeLeft(deadline);
-      slot = live.poll(timeoutLeft, timeout.getBaseUnit());
+    long timeoutLeft = timeout.getTimeoutInBaseUnit();
+    TimeUnit baseUnit = timeout.getBaseUnit();
+    boolean notClaimed;
+    for (;;) {
+      slot = live.poll(timeoutLeft, baseUnit);
       if (slot == null) {
         // we timed out while taking from the queue - just return null
         return null;
@@ -263,11 +261,17 @@ implements LifecycledResizablePool<T> {
         // that we can claim it for our selves. So we loop on this.
       } while (notClaimed && !slot.claimTlr2claim());
       // If we could not live->claimed but tlr-claimed->claimed, then
-      // we mustn't check isInvalid, because that might send it to the
-      // dead-queue *while somebody else thinks they've TLR-claimed it!*
+      // we mustn't check isInvalid, because that might send it to be
+      // reallocated *while somebody else thinks they've TLR-claimed it!*
       // We handle this in the outer loop: if we couldn't claim, then we retry
       // the loop.
-    } while (notClaimed || isInvalid(slot));
+      if (notClaimed || isInvalid(slot)) {
+        timeoutLeft = timeout.getTimeLeft(deadline);
+        continue;
+      }
+      break;
+    }
+    //noinspection ConstantConditions
     slot.incrementClaims();
     tlr.set(slot);
     return slot.obj;
@@ -323,7 +327,7 @@ implements LifecycledResizablePool<T> {
         } catch (Exception e) {
           // We unfortunately have to silently ignore this exception for now.
           // When we move to Java7 as a target, we can add it as a suppressed exception.
-//        poolException.addSuppressed(e);
+//        cause.addSuppressed(e);
           // Meanwhile, we still cannot be allowed to throw away slot objects!
           // They must remain circulating:
           slot.poison = e;

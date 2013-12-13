@@ -15,12 +15,13 @@
  */
 package stormpot;
 
-import static org.junit.Assert.*;
-import static org.hamcrest.Matchers.*;
+import org.junit.Test;
 
 import java.util.concurrent.TimeUnit;
 
-import org.junit.Test;
+import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.not;
+import static org.junit.Assert.*;
 
 public class TimeoutTest {
   @Test(expected = IllegalArgumentException.class) public void
@@ -65,6 +66,7 @@ public class TimeoutTest {
   @Test public void
   timeoutsAreNotEqualToNull() {
     Timeout a = new Timeout(1, TimeUnit.SECONDS);
+    //noinspection ObjectEqualsNull
     assertFalse(a.equals(null));
   }
   
@@ -100,5 +102,14 @@ public class TimeoutTest {
     Timeout a = new Timeout(1, TimeUnit.SECONDS);
     Timeout b = new Timeout(1, TimeUnit.MILLISECONDS);
     assertTrue(a.hashCode() != b.hashCode());
+  }
+
+  @Test public void
+  canGetTimeoutInBaseUnit() {
+    Timeout a = new Timeout(1, TimeUnit.SECONDS);
+    Timeout b = new Timeout(1000, TimeUnit.MILLISECONDS);
+    long timeoutBaseA = a.getTimeoutInBaseUnit();
+    long timeoutBaseB = b.getTimeoutInBaseUnit();
+    assertTrue(timeoutBaseA == timeoutBaseB);
   }
 }

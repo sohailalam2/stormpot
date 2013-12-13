@@ -160,9 +160,7 @@ implements LifecycledResizablePool<T> {
     slot.created = System.currentTimeMillis();
     slot.claims = 0;
     slot.stamp = 0;
-    slot.claimed.set(true);
-    slot.release(slot.obj);
-//    live.offer(slot); // TODO change the above two lines to this?
+    live.offer(slot);
   }
   
   private void deallocateSlot(QSlot<T> slot) {
@@ -197,7 +195,7 @@ implements LifecycledResizablePool<T> {
         // Meanwhile, we still cannot be allowed to throw away slot objects!
         // They must remain circulating:
         slot.poison = e;
-        live.offer(slot); // TODO test for this
+        live.offer(slot);
       }
       throw poolException;
     }
