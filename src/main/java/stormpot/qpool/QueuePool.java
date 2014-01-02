@@ -38,8 +38,8 @@ implements LifecycledResizablePool<T> {
   /**
    * Special slot used to signal that the pool has been shut down.
    */
-  private final QSlot<T> POISON_PILL = new QSlot<T>(null);
-  
+  private final QSlot<T> poisonPill;
+
   private final BlockingQueue<QSlot<T>> live;
   private final Expiration<? super T> deallocRule;
   private final Executor executor;
@@ -55,6 +55,7 @@ implements LifecycledResizablePool<T> {
    * @param config The pool configuration to use.
    */
   public QueuePool(Config<T> config) {
+    poisonPill = new QSlot<T>(null);
     live = new LinkedBlockingQueue<QSlot<T>>();
     synchronized (config) {
       config.validate();
@@ -77,7 +78,7 @@ implements LifecycledResizablePool<T> {
       }
     }
   }
-  
+
   private class AllocateNew implements Runnable {
     @Override
     public void run() {
@@ -85,7 +86,7 @@ implements LifecycledResizablePool<T> {
       allocateSlot(slot);
     }
   }
-  
+
   private class DeallocateAny implements Runnable {
     @Override
     public void run() {
@@ -96,9 +97,9 @@ implements LifecycledResizablePool<T> {
           observedSize = currentSize.get();
           // TODO maybe be a bit smarter about for how long we wait in poll()
           slot = live.poll(20, TimeUnit.MILLISECONDS);
-          if (slot == POISON_PILL) {
+          if (slot == poisonPill) {
             slot = live.poll(5, TimeUnit.MILLISECONDS);
-            live.offer(POISON_PILL);
+            live.offer(poisonPill);
             // TODO this is super ugly!!!
             Thread.sleep(1); // Leave the live queue locks alone for a little while, to avoid starving other threads
           }
@@ -116,14 +117,14 @@ implements LifecycledResizablePool<T> {
       }
     }
   }
-  
+
   private class Reallocate implements Runnable {
     private QSlot<T> slot;
-    
+
     public Reallocate(QSlot<T> slot) {
       this.slot = slot;
     }
-    
+
     @Override
     public void run() {
       reallocate(slot);
@@ -132,11 +133,11 @@ implements LifecycledResizablePool<T> {
 
   private class Deallocate implements Runnable {
     private QSlot<T> slot;
-    
+
     public Deallocate(QSlot<T> slot) {
       this.slot = slot;
     }
-    
+
     @Override
     public void run() {
       deallocateSlot(slot);
@@ -172,11 +173,11 @@ implements LifecycledResizablePool<T> {
 
       while (target < current) {
         QSlot<T> slot = live.poll(20, TimeUnit.MILLISECONDS);
-        if (slot == POISON_PILL) {
+        if (slot == poisonPill) {
           try {
             slot = live.poll(20, TimeUnit.MILLISECONDS);
           } finally {
-            live.offer(POISON_PILL); // TODO test for the interrupt case
+            live.offer(poisonPill); // TODO test for the interrupt case
           }
         }
         if (slot != null) {
@@ -212,7 +213,7 @@ implements LifecycledResizablePool<T> {
     slot.stamp = 0;
     live.offer(slot);
   }
-  
+
   private void deallocateSlot(QSlot<T> slot) {
     T obj = slot.obj;
     slot.obj = null;
@@ -228,31 +229,23 @@ implements LifecycledResizablePool<T> {
     }
   }
 
-  private void checkForPoison(QSlot<T> slot) {
-    if (slot == POISON_PILL) {
-      live.offer(POISON_PILL);
-      throw new IllegalStateException("pool is shut down");
+  public T claim(Timeout timeout) throws PoolException,
+      InterruptedException {
+    if (timeout == null) {
+      throw new IllegalArgumentException("timeout cannot be null");
     }
-    if (slot.poison != null) {
-      Exception poison = slot.poison;
-      PoolException poolException = new PoolException("allocation failed", poison);
-      try {
-        execute(new Reallocate(slot));
-      } catch (Exception e) {
-        // We unfortunately have to silently ignore this exception for now.
-        // When we move to Java7 as a target, we can add it as a suppressed exception.
-//        poolException.addSuppressed(e);
-        // Meanwhile, we still cannot be allowed to throw away slot objects!
-        // They must remain circulating:
-        slot.poison = e;
-        live.offer(slot);
+    QSlot<T> slot;
+    long deadline = timeout.getDeadline();
+    do {
+      long timeoutLeft = timeout.getTimeLeft(deadline);
+      slot = live.poll(timeoutLeft, timeout.getBaseUnit());
+      if (slot == null) {
+        // we timed out while taking from the queue - just return null
+        return null;
       }
-      throw poolException;
-    }
-    if (shutdown) {
-      execute(new Deallocate(slot));
-      throw new IllegalStateException("pool is shut down");
-    }
+      checkForPoison(slot);
+    } while (isInvalid(slot));
+    return slot.obj;
   }
 
   private boolean isInvalid(QSlot<T> slot) {
@@ -277,29 +270,37 @@ implements LifecycledResizablePool<T> {
     return invalid;
   }
 
-  public T claim(Timeout timeout) throws PoolException,
-      InterruptedException {
-    if (timeout == null) {
-      throw new IllegalArgumentException("timeout cannot be null");
+  private void checkForPoison(QSlot<T> slot) {
+    if (slot == poisonPill) {
+      live.offer(poisonPill);
+      throw new IllegalStateException("pool is shut down");
     }
-    QSlot<T> slot;
-    long deadline = timeout.getDeadline();
-    do {
-      long timeoutLeft = timeout.getTimeLeft(deadline);
-      slot = live.poll(timeoutLeft, timeout.getBaseUnit());
-      if (slot == null) {
-        // we timed out while taking from the queue - just return null
-        return null;
+    if (slot.poison != null) {
+      Exception poison = slot.poison;
+      PoolException poolException = new PoolException("allocation failed", poison);
+      try {
+        execute(new Reallocate(slot));
+      } catch (Exception e) {
+        // We unfortunately have to silently ignore this exception for now.
+        // When we move to Java7 as a target, we can add it as a suppressed exception.
+//        poolException.addSuppressed(e);
+        // Meanwhile, we still cannot be allowed to throw away slot objects!
+        // They must remain circulating:
+        slot.poison = e;
+        live.offer(slot);
       }
-      checkForPoison(slot);
-    } while (isInvalid(slot));
-    return slot.obj;
+      throw poolException;
+    }
+    if (shutdown) {
+      execute(new Deallocate(slot));
+      throw new IllegalStateException("pool is shut down");
+    }
   }
 
   public synchronized Completion shutdown() {
     if (!shutdown) {
       shutdown = true;
-      live.offer(POISON_PILL);
+      live.offer(poisonPill);
       for (int i = 0; i < targetSize; i++) {
         execute(new DeallocateAny());
       }

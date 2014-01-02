@@ -38,6 +38,7 @@ implements LifecycledResizablePool<T> {
    * Special slot used to signal that the pool has been shut down.
    */
   private final BSlot<T> poisonPill;
+
   private final BlockingQueue<BSlot<T>> live;
   private final Expiration<? super T> deallocRule;
   // TODO consider making it a ThreadLocal of Ref<QSlot>, hoping that maybe
@@ -60,8 +61,8 @@ implements LifecycledResizablePool<T> {
     // The poisonPill must be in a live state. Otherwise claim() will get stuck in
     // an infinite loop when it tries to transition it to the claimed state.
     poisonPill.dead2live();
-    live = new LinkedBlockingQueue<BSlot<T>>();
     tlr = new ThreadLocal<BSlot<T>>();
+    live = new LinkedBlockingQueue<BSlot<T>>();
     synchronized (config) {
       config.validate();
       deallocRule = config.getExpiration();
@@ -100,8 +101,9 @@ implements LifecycledResizablePool<T> {
         BSlot<T> slot;
         int observedSize;
         do {
-          slot = live.poll(20, TimeUnit.MILLISECONDS);
           observedSize = currentSize.get();
+          // TODO maybe be a bit smarter about for how long we wait in poll()
+          slot = live.poll(20, TimeUnit.MILLISECONDS);
           if (slot == poisonPill) {
             slot = live.poll(5, TimeUnit.MILLISECONDS);
             live.offer(poisonPill);
@@ -410,6 +412,7 @@ implements LifecycledResizablePool<T> {
     }
     if (!shutdown) {
       int delta = targetSize - size;
+      targetSize = size;
       if (delta < 0) {
         // We're growing the pool
         for (; delta < 0; delta++) {
@@ -419,7 +422,6 @@ implements LifecycledResizablePool<T> {
         // We're shrinking the pool
         execute(new ShrinkToTargetSize());
       }
-      targetSize = size;
     }
   }
 
