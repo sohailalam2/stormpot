@@ -74,7 +74,7 @@ implements LifecycledResizablePool<T> {
     shutdownLatch = new CountDownLatch(1);
     for (int i = 0; i < targetSize; i++) {
       try {
-        executor.execute(new AllocateNew());
+        execute(new AllocateNew());
       } catch (Exception e) {
         currentSize.incrementAndGet();
         BSlot<T> slot = new BSlot<T>(live);
@@ -132,8 +132,7 @@ implements LifecycledResizablePool<T> {
 
     @Override
     public void run() {
-      deallocateSlot(slot);
-      allocateSlot(slot);
+      reallocate(slot);
     }
   }
 
@@ -148,6 +147,57 @@ implements LifecycledResizablePool<T> {
     public void run() {
       deallocateSlot(slot);
     }
+  }
+
+  private class ShrinkToTargetSize implements Runnable {
+    @Override
+    public void run() {
+      try {
+        shrinkToTargetSize();
+      } catch (InterruptedException e) {
+        throw new RuntimeException(
+            "Shrinking pool to target size was stopped by interrupt", e);
+      }
+    }
+  }
+
+  private final Object resizeLock = new Object();
+
+  private void shrinkToTargetSize() throws InterruptedException {
+    // We only permit a single thread at a time to shrink the pool, because otherwise
+    // we could have a situation where an arbitrary number of shrinker threads take
+    // an item from the pool and deallocate them, before any of them observe that the
+    // current size has decreased. This race could cause us to deallocate far more
+    // items than we want, in cases where the target size is changed up and down in
+    // rapid succession, effectively putting us in a situation where there are fewer
+    // items in the steady-state-pool, than what was specified by the last
+    // setTargetSize.
+    synchronized (resizeLock) {
+      int target = targetSize;
+      int current = currentSize.get();
+
+      while (target < current) {
+        BSlot<T> slot = live.poll(20, TimeUnit.MILLISECONDS);
+        if (slot == poisonPill) {
+          try {
+            slot = live.poll(20, TimeUnit.MILLISECONDS);
+          } finally {
+            live.offer(poisonPill); // TODO test for the interrupt case
+          }
+        }
+        if (slot != null) {
+          deallocateSlot(slot);
+        }
+
+        target = targetSize;
+        current = currentSize.get();
+      }
+    }
+  }
+
+  private void reallocate(BSlot<T> slot) {
+    deallocateSlot(slot);
+    allocateSlot(slot);
   }
 
   private void allocateSlot(BSlot<T> slot) {
@@ -323,7 +373,7 @@ implements LifecycledResizablePool<T> {
       int state = slot.getState();
       if (state == BSlot.CLAIMED && slot.claim2dead()) {
         try {
-          executor.execute(action);
+          execute(action);
         } catch (Exception e) {
           // We unfortunately have to silently ignore this exception for now.
           // When we move to Java7 as a target, we can add it as a suppressed exception.
@@ -348,7 +398,7 @@ implements LifecycledResizablePool<T> {
       shutdown = true;
       live.offer(poisonPill);
       for (int i = 0; i < targetSize; i++) {
-        executor.execute(new DeallocateAny());
+        execute(new DeallocateAny());
       }
     }
     return new LatchCompletion(shutdownLatch);
@@ -363,16 +413,18 @@ implements LifecycledResizablePool<T> {
       if (delta < 0) {
         // We're growing the pool
         for (; delta < 0; delta++) {
-          executor.execute(new AllocateNew());
+          execute(new AllocateNew());
         }
       } else {
         // We're shrinking the pool
-        for (; delta > 0; delta--) {
-          executor.execute(new DeallocateAny());
-        }
+        execute(new ShrinkToTargetSize());
       }
       targetSize = size;
     }
+  }
+
+  private void execute(Runnable command) {
+    executor.execute(command);
   }
 
   public int getTargetSize() {

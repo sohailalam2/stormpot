@@ -23,6 +23,7 @@ import org.junit.experimental.theories.Theories;
 import org.junit.experimental.theories.Theory;
 import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
+import stormpot.bpool.BlazePoolFixture;
 import stormpot.qpool.QueuePoolFixture;
 
 import java.util.ArrayList;
@@ -46,7 +47,7 @@ public class ResizablePoolTest {
   private static final Timeout shortTimeout = new Timeout(1, TimeUnit.MILLISECONDS);
   
   @DataPoint public static PoolFixture queuePool = new QueuePoolFixture();
-//  @DataPoint public static PoolFixture blazePool = new BlazePoolFixture(); // TODO comment back in
+  @DataPoint public static PoolFixture blazePool = new BlazePoolFixture();
   
   @DataPoint public static ExecutorConfig cleanDefaultExecutor =
       ExecutorConfigs.cleanDefault();
