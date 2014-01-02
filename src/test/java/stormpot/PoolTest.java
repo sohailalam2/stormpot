@@ -409,7 +409,7 @@ public class PoolTest {
    * numbers are random, then they will have a roughly even split between ones
    * and zero bits.
    */
-  @Test(timeout = 600)
+  @Test(timeout = 1600)
   @Theory public void
   slotInfoMustBeAbleToProduceRandomNumbers(
       PoolFixture fixture, ExecutorConfig ec) throws Exception {
