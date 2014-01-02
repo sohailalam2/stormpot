@@ -1714,7 +1714,7 @@ public class PoolTest {
    */
   @Test(timeout = 300)
   @Theory public void
-  decreasingSizeMustEventuallyDeallocateSurplusObjects( // TODO times out (blazePool, cleanDefaultExecutor)
+  decreasingSizeMustEventuallyDeallocateSurplusObjects(
       PoolFixture fixture, ExecutorConfig ec) throws Exception {
     int startingSize = 5;
     int newSize = 1;
