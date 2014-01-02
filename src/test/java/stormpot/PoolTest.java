@@ -26,8 +26,8 @@ import org.junit.runner.RunWith;
 import stormpot.bpool.BlazePoolFixture;
 import stormpot.qpool.QueuePoolFixture;
 
+import java.util.Collection;
 import java.util.Collections;
-import java.util.List;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
@@ -827,7 +827,7 @@ public class PoolTest {
     }
     pool.claim(longTimeout);
     // check if the deallocation list contains duplicates
-    List<Poolable> deallocations = allocator.deallocationList();
+    Collection<Poolable> deallocations = allocator.deallocationList();
     for (Poolable elm : deallocations) {
       assertThat("Deallocations of " + elm,
           Collections.frequency(deallocations, elm), is(1));
@@ -1531,7 +1531,6 @@ public class PoolTest {
     assertThat(counter.get(), is(1L));
   }
   
-  // TODO must not pollute executor after shut down
   @Test(timeout = 300)
   @Theory public void
   mustNotPolluteExecutorAfterShutDown(PoolFixture fixture, ExecutorConfig ec) throws Exception {
@@ -1598,12 +1597,12 @@ public class PoolTest {
 
     try {
       pool.claim(longTimeout);
-      fail("PoolException should have been thrown for a rejected execution");
+      fail("PoolException should have been thrown for first rejected execution");
     } catch (PoolException ignore) {}
 
     try {
       pool.claim(longTimeout);
-      fail("PoolException should have been thrown for a rejected execution");
+      fail("PoolException should have been thrown for second rejected execution");
     } catch (PoolException ignore) {}
 
     // One execution was rejected in the constructor, another during the first
