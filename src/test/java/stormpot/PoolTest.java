@@ -103,6 +103,15 @@ public class PoolTest {
       ExecutorConfigs.constantly(Executors.newCachedThreadPool());
   @DataPoint public static ExecutorConfig singleThreadedExecutor =
       ExecutorConfigs.singleThreaded();
+  @DataPoint public static ExecutorConfig stackExecutor =
+      ExecutorConfigs.stackExecutor();
+
+
+  // These Executor configurations are too crazy to be supported:
+//  @DataPoint public static ExecutorConfig synchronousExecutor =
+//      ExecutorConfigs.synchronousSingleThreadedExecutor();
+//  @DataPoint public static ExecutorConfig callerRunsExecutor =
+//      ExecutorConfigs.callerRunsExecutor();
 
   @Before public void
   setUp() {
@@ -1355,6 +1364,7 @@ public class PoolTest {
     try {
       // ensure at least one allocation attempt has taken place
       pool.claim(longTimeout);
+      fail("allocation attempt should have failed!");
     } catch (Exception _) {
       // we don't care about this one
     }
@@ -1577,7 +1587,8 @@ public class PoolTest {
     d.release();
     completion.await(longTimeout);
 
-    assertThat(counter.get(), is(0L));
+    assertThat(counter.get(), is(0L)); // TODO racy for BlazePool: counter ends up 1.
+    // TODO fetch the task in question from a thread-dump or something.
   }
 
   @Test(timeout = 300)
@@ -1733,7 +1744,9 @@ public class PoolTest {
       if (objs.size() > 0) {
         objs.remove(0).release(); // give the pool objects to deallocate
       } else {
-        pool.claim(longTimeout).release(); // prod it & poke it
+        GenericPoolable obj = pool.claim(longTimeout);
+        // TODO (blazePool, sharedCachingExecutor) observed that claim() return null!
+        obj.release(); // prod it & poke it
       }
       LockSupport.parkNanos(10000000); // 10 millis
     }

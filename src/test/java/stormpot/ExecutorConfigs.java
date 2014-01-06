@@ -1,8 +1,6 @@
 package stormpot;
 
-import java.util.concurrent.Executor;
-import java.util.concurrent.Executors;
-import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class ExecutorConfigs {
@@ -33,6 +31,41 @@ public class ExecutorConfigs {
       }
     };
   }
+
+  /**
+   * The stack executor is a good demonstration that the commands can run in
+   * any order.
+   */
+  public static ExecutorConfig stackExecutor() {
+    return new ExecutorConfig() {
+      @Override
+      public Executor configure(Executor executor) {
+        BlockingQueue<Runnable> stackQueue = new LinkedBlockingDeque<Runnable>() {
+          @Override
+          public Runnable poll(long timeout, TimeUnit unit) throws InterruptedException {
+            return pollLast(timeout, unit);
+          }
+
+          @Override
+          public Runnable take() throws InterruptedException {
+            return takeLast();
+          }
+
+          @Override
+          public Runnable poll() {
+            return pollLast();
+          }
+
+          @Override
+          public Runnable remove() {
+            return removeLast();
+          }
+        };
+        return new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS, stackQueue);
+      }
+    };
+  }
+
 
   /**
    * Wrap the ExecutorConfig such that it keeps count of on-going tasks.
@@ -85,6 +118,33 @@ public class ExecutorConfigs {
             rejectionsLeft--;
             String message = "No soup for you! (Rejections left: " + rejectionsLeft + ")";
             throw new RejectedExecutionException(message);
+          }
+        };
+      }
+    };
+  }
+
+  // --- These Executor configurations are too crazy to be supported:
+  @Deprecated
+  public static ExecutorConfig synchronousSingleThreadedExecutor() {
+    return new ExecutorConfig() {
+      @Override
+      public Executor configure(Executor executor) {
+        BlockingQueue<Runnable> synchronousQueue = new SynchronousQueue<Runnable>();
+        return new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS, synchronousQueue);
+      }
+    };
+  }
+
+  @Deprecated
+  public static ExecutorConfig callerRunsExecutor() {
+    return new ExecutorConfig() {
+      @Override
+      public Executor configure(Executor executor) {
+        return new Executor() {
+          @Override
+          public void execute(Runnable command) {
+            command.run();
           }
         };
       }
