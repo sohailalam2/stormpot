@@ -46,7 +46,8 @@ public class CountingExpiration implements Expiration<Poolable> {
       counter.set(0);
     }
     int index = Math.min(count, replies.length - 1);
-    return hasExpired == null? replies[index] : hasExpired.get();
+    boolean reply = hasExpired == null ? replies[index] : hasExpired.get();
+    return reply;
   }
 
   public int getCount() {

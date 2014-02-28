@@ -27,27 +27,52 @@ import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
  * False-sharing is a fickle and vengeful mistress.
  */
 class BSlot<T extends Poolable> extends BSlotColdFields<T> implements Slot, SlotInfo<T> {
+  // LIVING slots are ready to be claimed any time.
   static final int LIVING = 1;
+  // CLAIMED slots are in active use and may be returned to the pool any time
+  // CLAIMED slots are NOT in neither the live-queue nor the dead-queue.
   static final int CLAIMED = 2;
+  // TLR_CLAIMED slots are also in active use, but have been claimed out of a
+  // thread-local, and so is therefor also in the live-queue.
+  // TLR_CLAIMED slots may at any time transition back to live - in which case
+  // they are already in the live-queue. Or they may be pulled off the
+  // live-queue - which case they will also transition to a normal CLAIMED.
   static final int TLR_CLAIMED = 3;
+  // DEAD slots have expired and can no longer be claimed. They are put on the
+  // dead-queue, and later picked up by the allocator thread for reallocation.
+  // Claims might be concurrently attempted against dead slots, but these will
+  // always fail.
   static final int DEAD = 4;
 
-  public BSlot(BlockingQueue<BSlot<T>> live) {
+  public BSlot(BlockingQueue<BSlot<T>> live, BlockingQueue<BSlot<T>> dead) {
     // Volatile write in the constructor: This object must be safely published,
     // so that we are sure that the volatile write happens-before other
     // threads observe the pointer to this object.
-    super(DEAD, live);
+    super(DEAD, live, dead);
   }
-  
+
+  @Override
   public void release(Poolable obj) {
     int slotState;
-    do {
-      slotState = get();
-      // We loop here because TLR_CLAIMED slots can be concurrently changed
-      // into normal CLAIMED slots.
-    } while (!tryTransitionToLive(slotState));
+    if (expired) {
+      do {
+        slotState = get();
+        // We loop here because TLR_CLAIMED slots can be concurrently changed
+        // into normal CLAIMED slots.
+      } while (!tryTransitionToDead(slotState));
+    } else {
+      do {
+        slotState = get();
+        // We loop here because TLR_CLAIMED slots can be concurrently changed
+        // into normal CLAIMED slots.
+      } while (!tryTransitionToLive(slotState));
+    }
     if (slotState == CLAIMED) {
-      live.offer(this);
+      if (expired) {
+        dead.offer(this);
+      } else {
+        live.offer(this);
+      }
     }
   }
 
@@ -58,6 +83,20 @@ class BSlot<T extends Poolable> extends BSlotColdFields<T> implements Slot, Slot
       return claim2live();
     }
     throw new PoolException("Slot release from bad state: " + slotState);
+  }
+
+  private boolean tryTransitionToDead(int slotState) {
+    if (slotState == TLR_CLAIMED) {
+      return claimTlr2dead();
+    } else if (slotState == CLAIMED) {
+      return claim2dead();
+    }
+    throw new PoolException("Slot release from bad state: " + slotState);
+  }
+
+  @Override
+  public void expire(Poolable obj) {
+    expired = true;
   }
   
   public boolean claim2live() {
@@ -76,6 +115,10 @@ class BSlot<T extends Poolable> extends BSlotColdFields<T> implements Slot, Slot
 //    return true;
     return compareAndSet(TLR_CLAIMED, LIVING);
   }
+
+  public boolean claimTlr2dead() {
+    return compareAndSet(TLR_CLAIMED, DEAD);
+  }
   
   public boolean live2claim() {
     return compareAndSet(LIVING, CLAIMED);
@@ -90,6 +133,7 @@ class BSlot<T extends Poolable> extends BSlotColdFields<T> implements Slot, Slot
   }
   
   public boolean claim2dead() {
+    // TODO lazySet?
     return compareAndSet(CLAIMED, DEAD);
   }
 
@@ -251,15 +295,21 @@ abstract class Padding2 extends PaddedAtomicInteger {
 
 abstract class BSlotColdFields<T extends Poolable> extends Padding2 implements SlotInfo<T> {
   final BlockingQueue<BSlot<T>> live;
+  final BlockingQueue<BSlot<T>> dead;
   long stamp;
   long created;
   T obj;
   Exception poison;
   long claims;
+  boolean expired;
 
-  public BSlotColdFields(int state, BlockingQueue<BSlot<T>> live) {
+  public BSlotColdFields(
+      int state,
+      BlockingQueue<BSlot<T>> live,
+      BlockingQueue<BSlot<T>> dead) {
     super(state);
     this.live = live;
+    this.dead = dead;
   }
 
   // XorShift PRNG with a 2^128-1 period.

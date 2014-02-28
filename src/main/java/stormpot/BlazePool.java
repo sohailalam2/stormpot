@@ -67,7 +67,7 @@ implements LifecycledResizablePool<T> {
     live = QueueFactory.createUnboundedBlockingQueue();
     dead = QueueFactory.createUnboundedBlockingQueue();
     tlr = new ThreadLocal<BSlot<T>>();
-    poisonPill = new BSlot<T>(live);
+    poisonPill = new BSlot<T>(live, dead);
     poisonPill.poison = SHUTDOWN_POISON;
 
     synchronized (config) {
@@ -178,7 +178,7 @@ implements LifecycledResizablePool<T> {
     boolean invalid = true;
     RuntimeException exception = null;
     try {
-      invalid = deallocRule.hasExpired(slot);
+      invalid = slot.expired || deallocRule.hasExpired(slot);
     } catch (Throwable ex) {
       exception = new PoolException(
           "Got exception when checking whether an object had expired", ex);
@@ -213,7 +213,7 @@ implements LifecycledResizablePool<T> {
       }
     }
     if (shutdown) {
-      kill(slot); // TODO Mutation testing not killed when removing this call.
+      kill(slot);
       throw new IllegalStateException("pool is shut down");
     }
   }

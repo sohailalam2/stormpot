@@ -15,13 +15,13 @@
  */
 package stormpot;
 
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.LinkedBlockingQueue;
-
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TestRule;
+
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
 
 /**
  * In this test, we make sure that the shut down process takes precautions
@@ -45,7 +45,7 @@ public abstract class AllocThread_ShutdownNullsPool_TestTemplate<
   protected abstract ALLOC_THREAD createAllocThread(
       BlockingQueue<SLOT> live, BlockingQueue<SLOT> dead);
   
-  protected abstract SLOT createSlot(BlockingQueue<SLOT> live);
+  protected abstract SLOT createSlot(BlockingQueue<SLOT> live, BlockingQueue<SLOT> dead);
 
   @Test(timeout = 300) public void
   mustHandleDeadNullsInShutdown() throws InterruptedException {
@@ -60,7 +60,7 @@ public abstract class AllocThread_ShutdownNullsPool_TestTemplate<
   mustHandleLiveNullsInShutdown() throws InterruptedException {
     BlockingQueue<SLOT> live = createInterruptingBlockingQueue();
     BlockingQueue<SLOT> dead = new LinkedBlockingQueue<SLOT>();
-    dead.add(createSlot(live));
+    dead.add(createSlot(live, dead));
     Thread thread = createAllocThread(live, dead);
     thread.run();
     // must complete before test times out, and not throw NPE

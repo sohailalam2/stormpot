@@ -77,7 +77,7 @@ class BAllocThread<T extends Poolable> extends Thread {
     boolean weHaveWorkToDo = size != targetSize || poisonedSlots > 0;
     long deadPollTimeout = weHaveWorkToDo? 0 : 50;
     if (size < targetSize) {
-      BSlot<T> slot = new BSlot<T>(live);
+      BSlot<T> slot = new BSlot<T>(live, dead);
       alloc(slot);
     }
     BSlot<T> slot = dead.poll(deadPollTimeout, TimeUnit.MILLISECONDS);
@@ -152,11 +152,16 @@ class BAllocThread<T extends Poolable> extends Thread {
       slot.poison = e;
     }
     size++;
+    reset(slot);
+    live.offer(slot);
+  }
+
+  private void reset(BSlot<T> slot) {
     slot.created = System.currentTimeMillis();
     slot.claims = 0;
     slot.stamp = 0;
+    slot.expired = false;
     slot.dead2live();
-    live.offer(slot);
   }
 
   private void dealloc(BSlot<T> slot) {
@@ -191,10 +196,7 @@ class BAllocThread<T extends Poolable> extends Thread {
         poisonedSlots++;
         slot.poison = e;
       }
-      slot.created = System.currentTimeMillis();
-      slot.claims = 0;
-      slot.stamp = 0;
-      slot.dead2live();
+      reset(slot);
       live.offer(slot);
     } else {
       dealloc(slot);

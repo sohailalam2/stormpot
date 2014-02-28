@@ -16,7 +16,6 @@
 package stormpot;
 
 import org.junit.Test;
-import stormpot.*;
 
 import java.util.LinkedList;
 import java.util.Queue;
@@ -26,9 +25,11 @@ public class BAllocThread_NullPollFromLiveWhileShrinking_Test
 extends AllocThread_NullPollFromLiveWhileShrinking_TestTemplate<BSlot<Poolable>, BAllocThread<Poolable>> {
 
   protected BAllocThread<Poolable> createAllocThread(
-      BlockingQueue<BSlot<Poolable>> live, BlockingQueue<BSlot<Poolable>> dead,
+      BlockingQueue<BSlot<Poolable>> live,
+      BlockingQueue<BSlot<Poolable>> dead,
       Config<Poolable> config) {
-    return new BAllocThread<Poolable>(live, dead, config, new BSlot<Poolable>(live));
+    return new BAllocThread<Poolable>(
+        live, dead, config, new BSlot<Poolable>(live, dead));
   }
 
   protected void setTargetSize(
@@ -38,8 +39,10 @@ extends AllocThread_NullPollFromLiveWhileShrinking_TestTemplate<BSlot<Poolable>,
   }
 
   @Override
-  protected BSlot<Poolable> createSlot(BlockingQueue<BSlot<Poolable>> live) {
-    BSlot<Poolable> slot = new BSlot<Poolable>(live);
+  protected BSlot<Poolable> createSlot(
+      BlockingQueue<BSlot<Poolable>> live,
+      BlockingQueue<BSlot<Poolable>> dead) {
+    BSlot<Poolable> slot = new BSlot<Poolable>(live, dead);
     slot.obj = new GenericPoolable(slot);
     return slot;
   }
@@ -56,7 +59,7 @@ extends AllocThread_NullPollFromLiveWhileShrinking_TestTemplate<BSlot<Poolable>,
     deadCalls.offer(ret(null));
     deadCalls.offer(ret(null));
     deadCalls.offer(setSizeReturn(th, 1, null));
-    BSlot<Poolable> slot = createSlot(live);
+    BSlot<Poolable> slot = createSlot(live, dead);
     slot.dead2live();
     slot.live2claim();
     liveCalls.offer(ret(slot));

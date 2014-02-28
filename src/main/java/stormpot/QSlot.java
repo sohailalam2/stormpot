@@ -20,15 +20,18 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 class QSlot<T extends Poolable> implements Slot, SlotInfo<T> {
   final BlockingQueue<QSlot<T>> live;
+  final BlockingQueue<QSlot<T>> dead;
   final AtomicBoolean claimed;
   T obj;
   Exception poison;
   long created;
   long claims;
   long stamp;
-  
-  public QSlot(BlockingQueue<QSlot<T>> live) {
+  boolean expired;
+
+  public QSlot(BlockingQueue<QSlot<T>> live, BlockingQueue<QSlot<T>> dead) {
     this.live = live;
+    this.dead = dead;
     this.claimed = new AtomicBoolean(true);
   }
   
@@ -37,10 +40,20 @@ class QSlot<T extends Poolable> implements Slot, SlotInfo<T> {
     claims++;
   }
 
+  @Override
   public void release(Poolable obj) {
     if (claimed.compareAndSet(true, false)) {
-      live.offer(this);
+      if (!expired) {
+        live.offer(this);
+      } else {
+        dead.offer(this);
+      }
     }
+  }
+
+  @Override
+  public void expire(Poolable obj) {
+    expired = true;
   }
 
   @Override

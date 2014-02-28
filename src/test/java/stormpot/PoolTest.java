@@ -23,8 +23,6 @@ import org.junit.experimental.theories.Theories;
 import org.junit.experimental.theories.Theory;
 import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
-import stormpot.BlazePoolFixture;
-import stormpot.QueuePoolFixture;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -2059,6 +2057,23 @@ public class PoolTest {
     }
     // The interrupt signal from shutdown will get caught by the Allocator:
     pool.shutdown().await(longTimeout);
+  }
+
+  @Test(timeout = 601)
+  @Theory public void
+  mustReallocateObjectsExplicitlyExpired(
+      PoolFixture fixture) throws Exception {
+    // Given objects never automatically expire
+    config.setExpiration(new CountingExpiration(false));
+    LifecycledPool<GenericPoolable> pool = lifecycled(fixture);
+
+    GenericPoolable obj = pool.claim(longTimeout);
+    obj.expire();
+    obj.release();
+
+    pool.claim(longTimeout).release();
+    assertThat(allocator.allocations(), is(2));
+    assertThat(allocator.deallocations(), is(1));
   }
 
   // NOTE: When adding, removing or modifying tests, also remember to update

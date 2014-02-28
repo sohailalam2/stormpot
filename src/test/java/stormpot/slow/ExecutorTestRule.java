@@ -86,6 +86,7 @@ public class ExecutorTestRule implements TestRule {
           int tries = 100;
           while (state != Thread.State.TERMINATED && tries --> 0) {
             Thread.yield();
+            synchronized (thread) {} // Memory effects
             state = thread.getState();
           }
           if (tries == 0) {

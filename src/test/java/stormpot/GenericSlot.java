@@ -19,4 +19,8 @@ public class GenericSlot implements Slot {
   @Override
   public void release(Poolable obj) {
   }
+
+  @Override
+  public void expire(Poolable obj) {
+  }
 }

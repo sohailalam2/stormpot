@@ -15,13 +15,13 @@
  */
 package stormpot;
 
-import java.util.LinkedList;
-import java.util.Queue;
-import java.util.concurrent.BlockingQueue;
-
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TestRule;
+
+import java.util.LinkedList;
+import java.util.Queue;
+import java.util.concurrent.BlockingQueue;
 
 /**
  * This is a rather esoteric case. It turned out that when a queue-based Pool
@@ -89,8 +89,8 @@ public abstract class AllocThread_NullPollFromLiveWhileShrinking_TestTemplate<
     Config<Poolable> config = createConfig();
     ALLOC_THREAD th = createAllocThread(live, dead, config);
     
-    calls.offer(ret(createSlot(live)));
-    calls.offer(ret(createSlot(live)));
+    calls.offer(ret(createSlot(live, dead)));
+    calls.offer(ret(createSlot(live, dead)));
     calls.offer(setSizeReturn(th, 1, null));
     calls.offer(throwStop());
     
@@ -101,7 +101,7 @@ public abstract class AllocThread_NullPollFromLiveWhileShrinking_TestTemplate<
     }
   }
   
-  protected abstract SLOT createSlot(BlockingQueue<SLOT> live);
+  protected abstract SLOT createSlot(BlockingQueue<SLOT> live, BlockingQueue<SLOT> dead);
 
   protected abstract ALLOC_THREAD createAllocThread(
       BlockingQueue<SLOT> live,

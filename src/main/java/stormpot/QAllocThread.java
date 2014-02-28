@@ -65,7 +65,7 @@ class QAllocThread<T extends Poolable> extends Thread {
         boolean weHaveWorkToDo = size != targetSize || poisonedSlots > 0;
         long deadPollTimeout = weHaveWorkToDo? 0 : 50;
         if (size < targetSize) {
-          QSlot<T> slot = new QSlot<T>(live);
+          QSlot<T> slot = new QSlot<T>(live, dead);
           alloc(slot);
         }
         QSlot<T> slot = dead.poll(deadPollTimeout, TimeUnit.MILLISECONDS);
@@ -134,11 +134,15 @@ class QAllocThread<T extends Poolable> extends Thread {
       slot.poison = e;
     }
     size++;
+    reset(slot);
+    live.offer(slot);
+  }
+
+  private void reset(QSlot<T> slot) {
     slot.created = System.currentTimeMillis();
     slot.claims = 0;
     slot.stamp = 0;
-    slot.claimed.set(true);
-    slot.release(slot.obj);
+    slot.expired = false;
   }
 
   private void dealloc(QSlot<T> slot) {
@@ -169,9 +173,7 @@ class QAllocThread<T extends Poolable> extends Thread {
         poisonedSlots++;
         slot.poison = e;
       }
-      slot.created = System.currentTimeMillis();
-      slot.claims = 0;
-      slot.stamp = 0;
+      reset(slot);
       live.offer(slot);
     } else {
       dealloc(slot);

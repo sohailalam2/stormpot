@@ -16,7 +16,6 @@
 package stormpot;
 
 import org.junit.Test;
-import stormpot.*;
 
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -29,13 +28,17 @@ extends AllocThread_ShutdownNullsPool_TestTemplate<BSlot<Poolable>, BAllocThread
 
   @Override
   protected BAllocThread<Poolable> createAllocThread(
-      BlockingQueue<BSlot<Poolable>> live, BlockingQueue<BSlot<Poolable>> dead) {
-    return new BAllocThread<Poolable>(live, dead, config, new BSlot<Poolable>(live));
+      BlockingQueue<BSlot<Poolable>> live,
+      BlockingQueue<BSlot<Poolable>> dead) {
+    return new BAllocThread<Poolable>(
+        live, dead, config, new BSlot<Poolable>(live, dead));
   }
 
   @Override
-  protected BSlot<Poolable> createSlot(BlockingQueue<BSlot<Poolable>> live) {
-    BSlot<Poolable> slot = new BSlot<Poolable>(live);
+  protected BSlot<Poolable> createSlot(
+      BlockingQueue<BSlot<Poolable>> live,
+      BlockingQueue<BSlot<Poolable>> dead) {
+    BSlot<Poolable> slot = new BSlot<Poolable>(live, dead);
     slot.obj = new GenericPoolable(slot);
     return slot;
   }
@@ -44,7 +47,7 @@ extends AllocThread_ShutdownNullsPool_TestTemplate<BSlot<Poolable>, BAllocThread
   claimedSlotsInDeadQueueMustMoveToLiveQueueInShutdown() throws InterruptedException {
     BlockingQueue<BSlot<Poolable>> live = createInterruptingBlockingQueue();
     BlockingQueue<BSlot<Poolable>> dead = new LinkedBlockingQueue<BSlot<Poolable>>();
-    BSlot<Poolable> slot = createSlot(live);
+    BSlot<Poolable> slot = createSlot(live, dead);
     slot.dead2live();
     slot.live2claim();
     dead.add(slot);
@@ -59,7 +62,7 @@ extends AllocThread_ShutdownNullsPool_TestTemplate<BSlot<Poolable>, BAllocThread
     config.setSize(0);
     BlockingQueue<BSlot<Poolable>> live = createInterruptingBlockingQueue();
     BlockingQueue<BSlot<Poolable>> dead = new LinkedBlockingQueue<BSlot<Poolable>>();
-    BSlot<Poolable> slot = createSlot(live);
+    BSlot<Poolable> slot = createSlot(live, dead);
     slot.dead2live();
     slot.live2claim();
     dead.add(slot);

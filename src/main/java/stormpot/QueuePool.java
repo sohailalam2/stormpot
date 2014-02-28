@@ -49,7 +49,7 @@ implements LifecycledResizablePool<T> {
   /**
    * Special slot used to signal that the pool has been shut down.
    */
-  final QSlot<T> poisonPill = new QSlot<T>(null);
+  final QSlot<T> poisonPill = new QSlot<T>(null, null);
   
   /**
    * Construct a new QueuePool instance based on the given {@link Config}.

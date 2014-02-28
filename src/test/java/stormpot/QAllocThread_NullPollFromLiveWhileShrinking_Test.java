@@ -23,7 +23,7 @@ extends AllocThread_NullPollFromLiveWhileShrinking_TestTemplate<QSlot<Poolable>,
   protected QAllocThread<Poolable> createAllocThread(
       BlockingQueue<QSlot<Poolable>> live, BlockingQueue<QSlot<Poolable>> dead,
       Config<Poolable> config) {
-    QAllocThread<Poolable> th = new QAllocThread<Poolable>(live, dead, config, new QSlot<Poolable>(live));
+    QAllocThread<Poolable> th = new QAllocThread<Poolable>(live, dead, config, new QSlot<Poolable>(live, dead));
     return th;
   }
 
@@ -34,8 +34,8 @@ extends AllocThread_NullPollFromLiveWhileShrinking_TestTemplate<QSlot<Poolable>,
   }
 
   @Override
-  protected QSlot<Poolable> createSlot(BlockingQueue<QSlot<Poolable>> live) {
-    QSlot<Poolable> slot = new QSlot<Poolable>(live);
+  protected QSlot<Poolable> createSlot(BlockingQueue<QSlot<Poolable>> live, BlockingQueue<QSlot<Poolable>> dead) {
+    QSlot<Poolable> slot = new QSlot<Poolable>(live, dead);
     slot.obj = new GenericPoolable(slot);
     return slot;
   }

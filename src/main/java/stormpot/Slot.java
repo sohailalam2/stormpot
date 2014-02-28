@@ -51,4 +51,24 @@ public interface Slot {
    * slot, and is being released.
    */
   void release(Poolable obj);
+
+  /**
+   * Explicitly expire the Poolable currently represented by the given slot.
+   * <p>
+   * It is normally the job of the configured {@link Expiration} to expire
+   * objects that should no longer be claimed, but sometimes this fact is
+   * apparent from the use of the object - say, for instance, that a fault
+   * developed during the use of the object, that put it in a bad state.
+   * In such a case, one might prefer to explicitly expire and object up front,
+   * instead of letting the Expiration rediscover that same fact later.
+   * <p>
+   * Note that explicit expiration must happen before the object is released
+   * back to the pool. It is a user error to explicitly expire objects that
+   * have not been claimed. Further, this method is not guaranteed to be
+   * thread-safe, so doing explicit expiration concurrently with the use of
+   * (including possible release of) the object, is generally not recommended,
+   * and if attempted anyway, will require synchronization.
+   * @param obj
+   */
+  void expire(Poolable obj);
 }
